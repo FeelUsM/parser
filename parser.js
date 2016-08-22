@@ -347,6 +347,77 @@ function exc(pattern, except) {
     });
 }
 
+
+/*
+придумать систему сообщений об ошибках
+написать преобразователь из регексов и необработанных строк
+реализовать sequence, char, quotedSequence
+использовать в html-mocha-chai
+дальше все остальное
+
+ted._add(name,opts,regexp,fun)
+ted._remove(name)
+ted._main = name
+ted._exec(str)
+опции: 
+	синтаксис больше похож на БНФ или на регулярки
+	function toLowercase
+
+spc ::= "\ \r\n\t\v\f"
+num ::= "[0-9]+"
+identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
+
+quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
+рег: char ::= /[^\\\/\``|$.*+?()[]{}`] | `\\`./ // [\\\/\``|$.*+?()[]{}bfnrtv'"`] /
+БНФ: char ::= /`\\`. / // здесь экранируется всё
+рег: classChar ::= /[^\\\/\``^-|$.*+?()[]{}`] | `\\`. / // [\\\/\``^-|$.*+?()[]{}bfnrtv'"`]/ // отличие от char в ^ и -
+БНФ: classChar ::= /[^\\\/\`` ^-|$.*+?()[]{}`] | `\\`. / // [\\\/\`` ^-|$.*+?()[]{}bfnrtv'"`]/ // здесь еще пробел экранируется
+рег: class ::= "`[``^`?(classChar(`-`classChar)?|quotedSequence)`]`|`.`"
+БНФ: class ::= "`[``^`? spc* (classChar(`-`classChar)? spc*|quotedSequence spc*)*`]` | `.`"
+balansedBrackets ::= "`(`([^`(`]|balansedBrackets)*`)`" 
+рег: link ::= "`$`(identifier|`{`identifier balansedBrackets? `}`)"
+БНФ: link ::= "`$`( identifier | `{` identifier balansedBrackets?`}` ) | identifier balansedBrackets?" // без пробелов
+symbol ::= "char|quotedSequence|class|link"
+
+рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
+БНФ: quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`"
+
+modifier ::= "`?`(`!`|\\` ([^\\`])* `\\`>`)"
+рег: sequence ::= "(symbol quantificator? | `(`modifier? alternatives`)` quantificator? )*" 
+// получает все символы в качестве данных, а потом компилирует их...
+// в зависимости от того, есть ли у группы модификатор, по разному обрабатывается первый модификатор группы
+БНФ: sequence ::= "spc* (symbol quantificator? spc* | `(` modifier? spc* alternatives spc* `)` quantificator? spc* )*"
+рег: alternatives ::= "sequence (`|`modifier? sequence)*"
+БНФ: alternatives ::= "sequence (spc* `|`modifier? spc* sequence)*"
+
+namedModifier ::= "`?!` | (`?`identifier?`=`)? (`?32\\`` ([^\\`])* `\\`>`)?"
+рег: namedSequence ::= "(symbol quantificator? | \
+`(?`identifier?`=` 	namedModifier? 	namedAlternatives 	`)` quantificator 	| \
+`(` 			modifier? 	alternatives 		`)` quantificator 	| \
+`(` 			namedModifier? 	namedAlternatives 	`)` 			)*"
+БНФ: namedSequence ::= "spc* (symbol quantificator? spc* | \
+`(?`identifier?`=` 	namedModifier? 	spc* namedAlternatives 	spc* `)` quantificator 	spc* | \
+`(` 			modifier? 	spc* alternatives 	spc* `)` quantificator 	spc* | \
+`(` 			namedModifier? 	spc* namedAlternatives 	spc* `)` 		spc* )*"
+// чтобы использовать имена в группе с квантификатором, она должна быть именованной
+рег: namedAlternatives ::= "namedSequence (`|`namedModifier? namedSequence)*"
+БНФ: namedAlternatives ::= "namedSequence ( spc* `|`namedModifier? spc* namedSequence)*"
+// группы пока только энергичные, без возвратов, как будто (?>...)
+// обычным группам будет синтаксис ((нанана))
+// функциональность \n где n - номер скобки - отсутствует, возможно ее можно будет выразить через (())
+
+main ::= "namedAlternatives `$`?"
+
+отличия от обычных regexp-ов:
+рекурсивные - можно вызывать один паттерн из другого (есть в perl)
+группы надо именовать вручную
+результат группы можно обработать прям сразу
+по умолчанию результат возвращается в JSON
+*/
+
+
+
+
 exports.ParseError = ParseError;
 exports.FatalError = FatalError;
 exports.isGood = isGood;
@@ -355,6 +426,7 @@ exports.addErrMessage =  addErrMessage;
 exports.read_all = read_all
 exports.Pattern = Pattern;
 exports.Forward = Forward;
+
 exports.read_txt = read_txt;
 exports.txt = txt;
 exports.read_rgx = read_rgx;
@@ -375,6 +447,8 @@ exports.any = any;
 exports.collect = collect;
 exports.notCollect = notCollect;
 //exports.exc = exc;
+
+/frrtytr/
 
 }
 	if(loaded_modules) { // it is not node.js
