@@ -27,6 +27,7 @@ function isGood(r){
 function notFatal(r){
 	return typeof r === 'object' ? r.err===undefined || r.err<2 : r!==undefined ;
 }
+function isFatal(r) { return !notFatal(r); }
 
 function addErrMessage(r,message){
 	if(!isGood(r) && r!==undefined) r.what+=message;
@@ -362,52 +363,183 @@ ted._exec(str)
 опции: 
 	синтаксис больше похож на БНФ или на регулярки
 	function toLowercase
+*/
 
-spc ::= "\ \r\n\t\v\f"
-num ::= "[0-9]+"
-identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
+// spc ::= "[\ \r\n\t\v\f]"
+var spc = rgx(/^[\ \r\n\t\v\f]/);
+// num ::= "[0-9]+"
+var num = rgx(/^[0-9]+/).then((m)=>+m[0]);
+// identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
+var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/)
 
+/*
 quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
+// возвращает строку
+*/
+var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then((m)=>m[1].replace(/\\\\|\\`/g,(escseq)=>{
+	var res = escseq==='\\\\' ? '\\' : '`';
+	//console.log('escseq = '+escseq+' to '+ res);
+	return res;
+}));
+exports.quotedSequence = quotedSequence;
+
+/*
 рег: char ::= /[^\\\/\``|$.*+?()[]{}`] | `\\`./ // [\\\/\``|$.*+?()[]{}bfnrtv'"`] /
 БНФ: char ::= /`\\`. / // здесь экранируется всё
+// возвращает символ
+*/
+var reg_char = rgx(/^[^\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+exports.reg_char = reg_char;
+var bnf_char = rgx(/^\\(.)/).then((m)=>m[1]);
+exports.bnf_char = bnf_char;
+
+/*
 рег: classChar ::= /[^\\\/\``^-|$.*+?()[]{}`] | `\\`. / // [\\\/\``^-|$.*+?()[]{}bfnrtv'"`]/ // отличие от char в ^ и -
 БНФ: classChar ::= /[^\\\/\`` ^-|$.*+?()[]{}`] | `\\`. / // [\\\/\`` ^-|$.*+?()[]{}bfnrtv'"`]/ // здесь еще пробел экранируется
-рег: class ::= "`[``^`?(classChar(`-`classChar)?|quotedSequence)`]`|`.`"
+// возвращает символ
+*/
+var reg_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+exports.reg_classChar = reg_classChar;
+var bnf_classChar = rgx(/^[^\^\-\ \\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+exports.bnf_classChar = bnf_classChar;
+
+/*
+рег: class ::= "`[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.`"
 БНФ: class ::= "`[``^`? spc* (classChar(`-`classChar)? spc*|quotedSequence spc*)*`]` | `.`"
+// возвращает регексп (без галки вначале)
+*/
+var escaper = (s)=>{
+	var r = s.replace(/([\^\-\ \\\/\|\$\.\*\+\?\(\)\[\]\{\}])/g,'\\$1');
+	//console.log('replace: '+r);
+	return r;
+}
+var merger = (arr)=>{
+	var r = arr.join('');
+	//console.log('merge: '+r);
+	return r;
+}
+var star = {min:0,max:Infinity};
+var voider = (r)=>typeof r === 'object' && r.err===0 ? '' : r; 
+var reg_class = any(collect,
+	txt('.'),
+	seq(need_all, 
+		txt('['), opt(txt('^')).then(voider), 
+		rep(any(collect, 
+			seq(need_all, 
+				reg_classChar.then(escaper), opt(seq(need_all, txt('-'), reg_classChar.then(escaper)).then(merger)).then(voider)
+			).then(merger),
+			quotedSequence.then(escaper)
+		),star).then(merger), 
+		txt(']') 
+	).then(merger)
+).then((s)=>new RegExp(s));
+exports.reg_class = reg_class;
+var spcs = rep(spc,star).then((r)=>'');
+var bnf_class = any(collect,
+	txt('.'),
+	seq(need_all, 
+		txt('['), opt(txt('^')).then(voider), spcs, 
+		rep(any(collect, 
+			seq(need_all, 
+				bnf_classChar.then(escaper), 
+				opt(seq(need_all, txt('-'), bnf_classChar.then(escaper)).then(merger)).then(voider),
+				spcs
+			).then(merger),
+			seq(need(0), quotedSequence.then(escaper), spcs)
+		),star).then(merger), 
+		txt(']') 
+	).then(merger)
+).then((s)=>new RegExp(s));
+exports.bnf_class = bnf_class;
+
+
+/*
 balansedBrackets ::= "`(`([^`(`]|balansedBrackets)*`)`" 
 рег: link ::= "`$`(identifier|`{`identifier balansedBrackets? `}`)"
 БНФ: link ::= "`$`( identifier | `{` identifier balansedBrackets?`}` ) | identifier balansedBrackets?" // без пробелов
-symbol ::= "char|quotedSequence|class|link"
+// возвращает ссылку на паттерн
+*/
 
+/*
+symbol ::= "char|quotedSequence|class|link"
+// возвращает строку или регексп или ссылку на паттерн
+*/
+var reg_symbol = any(collect,reg_char,quotedSequence,reg_class);
+var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class);
+
+/*
 рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
 БНФ: quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`"
+// возвращет объект {min:int,max:int}
+*/
+var reg_quantificator = any(collect,
+	txt('*').then(()=>({min:0,max:Infinity})),
+	txt('+').then(()=>({min:1,max:Infinity})),
+	txt('?').then(()=>({min:0,max:1})),
+	seq(need(1),txt('{'),
+		any(collect,
+			seq(need(1),txt(','),num).then((n)=>({min:0,max:n})),
+			seq(need_all,
+				num,
+				opt(seq(need(1),txt(','),
+					opt(num).then((n)=>typeof n === 'number' ? n : Infinity))
+				)
+			).then((arr)=>({
+				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
+			}))
+		)
+	,txt('}'))
+);
+exports.reg_quantificator = reg_quantificator;
+var bnf_quantificator = any(collect,
+	txt('*').then(()=>({min:0,max:Infinity})),
+	txt('+').then(()=>({min:1,max:Infinity})),
+	txt('?').then(()=>({min:0,max:1})),
+	seq(need(2),txt('{'),spcs,
+		any(collect,
+			seq(need(2),txt(','),spcs,num).then((n)=>({min:0,max:n})),
+			seq(need_all,
+				num,
+				opt(seq(need(3),spcs,txt(','),spcs,
+					opt(num).then((n)=>typeof n === 'number' ? n : Infinity))
+				)
+			).then((arr)=>({
+				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
+			}))
+		),
+	spcs,txt('}'))
+);
+exports.bnf_quantificator = bnf_quantificator;
 
-modifier ::= "`?`(`!`|\\` ([^\\`])* `\\`>`)"
-рег: sequence ::= "(symbol quantificator? | `(`modifier? alternatives`)` quantificator? )*" 
-// получает все символы в качестве данных, а потом компилирует их...
-// в зависимости от того, есть ли у группы модификатор, по разному обрабатывается первый модификатор группы
-БНФ: sequence ::= "spc* (symbol quantificator? spc* | `(` modifier? spc* alternatives spc* `)` quantificator? spc* )*"
-рег: alternatives ::= "sequence (`|`modifier? sequence)*"
-БНФ: alternatives ::= "sequence (spc* `|`modifier? spc* sequence)*"
+/*
+modifier ::= "`?`(`!`|\\` ([^\\`])* `\\`<`) (`?`identifier`->`)?"
+namedModifier ::= "`?!` | (`?`identifier?`=`)? (`?32\\`` ([^\\`])* `\\`<`)? (`?`identifier`->`)?"
+// возвращает объект {name:false или строка, fun:undefined или function(args,global,stack)}
+// если в тексте функции не встретилось return, оно добавляется перед все строкой
 
-namedModifier ::= "`?!` | (`?`identifier?`=`)? (`?32\\`` ([^\\`])* `\\`>`)?"
-рег: namedSequence ::= "(symbol quantificator? | \
-`(?`identifier?`=` 	namedModifier? 	namedAlternatives 	`)` quantificator 	| \
-`(` 			modifier? 	alternatives 		`)` quantificator 	| \
-`(` 			namedModifier? 	namedAlternatives 	`)` 			)*"
-БНФ: namedSequence ::= "spc* (symbol quantificator? spc* | \
-`(?`identifier?`=` 	namedModifier? 	spc* namedAlternatives 	spc* `)` quantificator 	spc* | \
-`(` 			modifier? 	spc* alternatives 	spc* `)` quantificator 	spc* | \
-`(` 			namedModifier? 	spc* namedAlternatives 	spc* `)` 		spc* )*"
+рег: sequence ::= "modifier? (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
+БНФ: sequence ::= "modifier? spc* (symbol quantificator? spc* | `(` alternatives spc* `)` quantificator? spc* )*"
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
-рег: namedAlternatives ::= "namedSequence (`|`namedModifier? namedSequence)*"
-БНФ: namedAlternatives ::= "namedSequence ( spc* `|`namedModifier? spc* namedSequence)*"
+рег: namedSequence ::= "namedModifier? (symbol quantificator? | \
+`(?`identifier?`=` 	namedAlternatives 	`)` quantificator 	| \
+`(` 			alternatives 		`)` quantificator 	| \
+`(` 			namedAlternatives 	`)` 			)*"
+БНФ: namedSequence ::= "namedModifier? spc* (symbol quantificator? spc* | \
+`(?`identifier?`=` 	namedAlternatives 	spc* `)` quantificator 	spc* | \
+`(` 			alternatives 		spc* `)` quantificator 	spc* | \
+`(` 			namedAlternatives 	spc* `)` 		spc* )*"
+// последовательность символов с квантификаторами преобразует в один регексп (с галкой в начале)
+// 
+
+alternatives ::= "sequence (`|`sequence)*"
+namedAlternatives ::= "namedSequence (`|`namedSequence)*"
+
+main ::= "namedAlternatives `$`?"
+// в строку в начале автоматически добавляется `?=`
+
 // группы пока только энергичные, без возвратов, как будто (?>...)
 // обычным группам будет синтаксис ((нанана))
 // функциональность \n где n - номер скобки - отсутствует, возможно ее можно будет выразить через (())
-
-main ::= "namedAlternatives `$`?"
-
 отличия от обычных regexp-ов:
 рекурсивные - можно вызывать один паттерн из другого (есть в perl)
 группы надо именовать вручную
@@ -415,13 +547,11 @@ main ::= "namedAlternatives `$`?"
 по умолчанию результат возвращается в JSON
 */
 
-
-
-
 exports.ParseError = ParseError;
 exports.FatalError = FatalError;
 exports.isGood = isGood;
 exports.notFatal = notFatal;
+exports.isFatal = isFatal;
 exports.addErrMessage =  addErrMessage;
 exports.read_all = read_all
 exports.Pattern = Pattern;
@@ -440,22 +570,24 @@ exports.need_none = need_none;
 exports.need = need;
 exports.read_rep = read_rep;
 exports.rep = rep;
-// #todo понадобится - доделать
-exports.rep_more = rep_more;
+exports.rep_more = rep_more; // #todo понадобится - доделать
 exports.read_any = read_any;
 exports.any = any;
 exports.collect = collect;
 exports.notCollect = notCollect;
 //exports.exc = exc;
 
-/frrtytr/
 
 }
-	if(loaded_modules) { // it is not node.js
-		module = new Module();
-		main(module, module.exports, require);
-		loaded_modules["name-of-module"] = module.exports;
+	try{
+		if(loaded_modules) { // it is not node.js
+			module = new Module();
+			main(module, module.exports, require);
+			loaded_modules["parser"] = module.exports; 
+		}
+		else throw new Error('loaded_modules is false')
 	}
-	else // node.js
+	catch(err){ // node.js
 		main(module, exports, require);
+	}
 })()
