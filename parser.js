@@ -11,12 +11,14 @@ function ParseError(where,what,res){
 	this.res = res; // не обязательный
 }
 //мы не поняли, что прочитали
-function FatalError(where,what){
+function FatalError(where,what,by){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
 	this.err = 2
 	this.what = what; // если what - массив, то where не имеет смысла
 	this.where = where;
+	this.by = by;
 }
+var tail_error; // GLOBAL VARIABLE for tail error
 
 // is result
 function isGood(r){
@@ -40,7 +42,7 @@ function read_all(str, pos, pattern) {
 	pos = {x:0}//и далее передаем всегда по ссылке
 	var r = pattern(str,pos);
 	if(!isGood(r))
-		if(!r)
+		if(r===undefined)
 			return new FatalError(pos.x,'unknown error')
 		else
 			return r;
@@ -48,7 +50,7 @@ function read_all(str, pos, pattern) {
 		if(pos.x == str.length)
 			return r;
 		else
-			return new ParseError(pos.x,'unparsed chars are remained',r);
+			return new FatalError(pos.x,'unparsed chars are remained',tail_error);
 }
 
 // основной конструктор
@@ -56,6 +58,7 @@ function Pattern(exec) {
 	// если pos не передан, то строка должна соответствовать паттерну от начала и до конца
 	// иначе ParseError(pos.x,'остались неразобранные символы',r)
     this.exec = function pattern_exec(str, pos/*.x*/){
+		tail_error = undefined;
 		if(pos === undefined) return read_all(str,pos,exec);
 		else return exec(str,pos);
 	};
@@ -64,7 +67,7 @@ function Pattern(exec) {
     this.then = function pattern_then(transform/*(r,x)*/,error_transform/*(x,r)*/) {
 		if(error_transform){
 			console.assert(typeof error_transform === 'function')
-			if(typeof tranform === 'function')
+			if(typeof transform === 'function')
 				return new Pattern(function pattern_then_reserr(str,pos/*.x*/){
 					var x = pos.x;
 					var r = exec(str, pos);
@@ -106,6 +109,7 @@ function read_txt(str, pos, text) {
 		pos.x += text.length;
 		return text;
 	}
+	return new FatalError(pos.x,'не могу прочитать '+text);
 }
 function txt(text) {
     return new Pattern((str,pos)=>read_txt(str,pos,text));
@@ -120,6 +124,7 @@ function read_rgx(str, pos, regexp) {
 		pos.x += m.index + m[0].length;
 		return m
 	}
+	return new FatalError(pos.x,'не могу прочитать '+regexp.source)
 }
 //если в начале regexp не стоит ^, то она будет поставлена автомамтически
 function rgx(regexp) {
@@ -137,6 +142,7 @@ function read_opt(str, pos, pattern) {
 	var x = pos.x;
 	var r = pattern(str, pos)
 	if(!isGood(r))	{
+		tail_error = r;
 		pos.x=x;
 		return {err:0};	//не ошибка
 	}
@@ -253,7 +259,7 @@ function read_rep(str, pos, pattern, separated, min, max) {
 		r = separated(str, pos/*.x*/);
 		i++;
 	}
-	if(min>0 && !notFatal(r)){
+	if(min>0 && isFatal(r)){
 		pos.x = x;
 		return r;
 	}
@@ -270,8 +276,10 @@ function read_rep(str, pos, pattern, separated, min, max) {
 	}
 	if(isGood(r))
 		res.push(r);
-	else
+	else {
+		tail_error = r;
 		pos.x = x;
+	}
 	return res;
 }
 // читает последовательность паттернов, разделенных сепаратором
@@ -366,21 +374,25 @@ ted._exec(str)
 */
 
 // spc ::= "[\ \r\n\t\v\f]"
-var spc = rgx(/^[\ \r\n\t\v\f]/);
+var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,x=>new FatalError(x,'ожидался пробельный символ'));
+//exports.spc = spc;
 // num ::= "[0-9]+"
-var num = rgx(/^[0-9]+/).then((m)=>+m[0]);
+var num = rgx(/^[0-9]+/).then(m=>+m[0],x=>new FatalError(x,'ожидалось число'));
 // identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
-var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then((m)=>m[0])
+var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then(m=>m[0],x=>new FatalError(x,'ожидался идентификатор'))
 
 /*
 quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
 // возвращает строку
 */
-var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then((m)=>m[1].replace(/\\\\|\\`/g,(escseq)=>{
-	var res = escseq==='\\\\' ? '\\' : '`';
-	//console.log('escseq = '+escseq+' to '+ res);
-	return res;
-}));
+var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
+	m=>m[1].replace(/\\\\|\\`/g,(escseq)=>{
+		var res = escseq==='\\\\' ? '\\' : '`';
+		//console.log('escseq = '+escseq+' to '+ res);
+		return res;
+	}),
+	x=>new FatalError(x,'не могу прочитать quotedSequence')
+);
 exports.quotedSequence = quotedSequence;
 
 /*
@@ -388,9 +400,15 @@ exports.quotedSequence = quotedSequence;
 БНФ: char ::= /`\\`. / // здесь экранируется всё
 // возвращает символ
 */
-var reg_char = rgx(/^[^\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+var reg_char = rgx(/^[^\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+	m=>m[0].replace(/\\(.)/,'$1'),
+	x=>new FatalError(x,'не могу прочитать reg_char')
+);
 exports.reg_char = reg_char;
-var bnf_char = rgx(/^\\(.)/).then((m)=>m[1]);
+var bnf_char = rgx(/^\\(.)/).then(
+	m=>m[1],
+	x=>new FatalError(x,'не могу прочитать bnf_char')
+);
 exports.bnf_char = bnf_char;
 
 /*
@@ -398,9 +416,15 @@ exports.bnf_char = bnf_char;
 БНФ: classChar ::= /[^\\\/\`` ^-|$.*+?()[]{}`] | `\\`. / // [\\\/\`` ^-|$.*+?()[]{}bfnrtv'"`]/ // здесь еще пробел экранируется
 // возвращает символ
 */
-var reg_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+var reg_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+	m=>m[0].replace(/\\(.)/,'$1'),
+	x=>new FatalError(x,'не могу прочитать reg_classChar')
+);
 exports.reg_classChar = reg_classChar;
-var bnf_classChar = rgx(/^[^\^\-\ \\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then((m)=>m[0].replace(/\\(.)/,'$1'));
+var bnf_classChar = rgx(/^[^\^\-\ \\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+	m=>m[0].replace(/\\(.)/,'$1'),
+	x=>new FatalError(x,'не могу прочитать bnf_classChar')
+);
 exports.bnf_classChar = bnf_classChar;
 
 /*
@@ -432,9 +456,12 @@ var reg_class = any(collect,
 		),star).then(merger), 
 		txt(']') 
 	).then(merger)
-).then((s)=>new RegExp(s));
+).then(
+	s=>new RegExp(s),
+	(x,e)=>new FatalError(x,'не могу прочитать reg_class',e)
+);
 exports.reg_class = reg_class;
-var spcs = rep(spc,star).then((r)=>'');
+var spcs = rep(spc,star).then(r=>'');
 var bnf_class = any(collect,
 	txt('.'),
 	seq(need_all, 
@@ -449,7 +476,10 @@ var bnf_class = any(collect,
 		),star).then(merger), 
 		txt(']') 
 	).then(merger)
-).then((s)=>new RegExp(s));
+).then(
+	s=>new RegExp(s),
+	(x,e)=>new FatalError(x,'не могу прочитать bnf_class',e)
+);
 exports.bnf_class = bnf_class;
 
 
@@ -464,8 +494,8 @@ balansedBrackets ::= "`(`([^`(`]|balansedBrackets)*`)`"
 symbol ::= "char|quotedSequence|class|link"
 // возвращает строку или регексп или ссылку на паттерн
 */
-var reg_symbol = any(collect,reg_char,quotedSequence,reg_class);
-var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class);
+var reg_symbol = any(collect,reg_char,quotedSequence,reg_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_symbol',e));
+var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать bnf_symbol',e));
 
 /*
 рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
@@ -478,18 +508,18 @@ var reg_quantificator = any(collect,
 	txt('?').then(()=>({min:0,max:1})),
 	seq(need(1),txt('{'),
 		any(collect,
-			seq(need(1),txt(','),num).then((n)=>({min:0,max:n})),
+			seq(need(1),txt(','),num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
 				opt(seq(need(1),txt(','),
-					opt(num).then((n)=>typeof n === 'number' ? n : Infinity))
+					opt(num).then(n=>typeof n === 'number' ? n : Infinity))
 				)
-			).then((arr)=>({
+			).then(arr=>({
 				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
 			}))
 		)
 	,txt('}'))
-);
+).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_quantificator',e));
 exports.reg_quantificator = reg_quantificator;
 var bnf_quantificator = any(collect,
 	txt('*').then(()=>({min:0,max:Infinity})),
@@ -497,18 +527,18 @@ var bnf_quantificator = any(collect,
 	txt('?').then(()=>({min:0,max:1})),
 	seq(need(2),txt('{'),spcs,
 		any(collect,
-			seq(need(2),txt(','),spcs,num).then((n)=>({min:0,max:n})),
+			seq(need(2),txt(','),spcs,num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
 				opt(seq(need(3),spcs,txt(','),spcs,
-					opt(num).then((n)=>typeof n === 'number' ? n : Infinity))
+					opt(num).then(n=>typeof n === 'number' ? n : Infinity))
 				)
-			).then((arr)=>({
+			).then(arr=>({
 				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
 			}))
 		),
 	spcs,txt('}'))
-);
+).then(0,(x,e)=>new FatalError(x,'не могу прочитать bnf_quantificator',e));
 exports.bnf_quantificator = bnf_quantificator;
 
 
@@ -527,21 +557,33 @@ function code_to_fun(code) {
 	return 
 }
 var modifier = seq(need(1), txt('?'), any(collect,
-	txt('!').then((r)=>({type:'not'})),
+	txt('!').then(r=>({type:'not'})),
 	seq(need(1),txt('`'),
-		rgx(/^[^`]*/).then((m)=>({type:'postscript',data:m[0]})),
+		rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
 		txt('`<'))
 	//,seq(need(0),identifier,txt('->'))   // на будущее
-));
+)).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
 	modifier,
-	seq(need(1),txt('?'), opt(identifier).then(voider).then((s)=>({type:'returnname',data:s})), txt('='))
-);
+	seq(need(1),txt('?'), opt(identifier).then(voider).then(s=>({type:'returnname',data:s})), txt('='))
+).then(0,(x,e)=>new FatalError(x,'не могу прочитать namedModifier',e));
 exports.namedModifier = namedModifier;
 
 /*
 рег: sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
 БНФ: sequence ::= "(modifier )* spc* (symbol quantificator? spc* | `(` alternatives spc* `)` quantificator? spc* )*"
+*/
+var reg_sequence = seq(need_all,
+	rep(modifier),
+	rep(seq(need_all,
+		reg_symbol,
+		opt(reg_quantificator).then(
+			(r)=>typeof r === 'object' && r.err===0 ? [] : r
+		)
+	))
+).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e));
+exports.reg_sequence = reg_sequence;
+/*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
 рег: namedSequence ::= "namedModifier* (symbol quantificator? | \
 `(` namedModifier* `*` 	namedAlternatives 	`)` quantificator 	| \
