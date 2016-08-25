@@ -9,8 +9,6 @@
   <link href="mocha.css" rel="stylesheet" />
   <script src="mocha.js"></script>
   <script src="chai.js"></script>
-  <script src="props_manager.js"></script>
-  <script src="modules_manager.js"></script>
   <script>
 	//mocha.checkLeaks();
     //mocha.globals(['jQuery']);
@@ -18,7 +16,9 @@
     var assert = chai.assert;
   </script>
 
-<script src="parser.js"> </script>
+  <script src="props_manager.js"></script>
+  <script src="modules_manager.js"></script>
+  <script src="parser.js"> </script>
 
   </head>
 <body>
@@ -27,6 +27,18 @@
 ;(function(){
 'use strict';
 	copyProps(require('parser'),window);
+	
+	describe('modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
+		it('?! -> {type:"not"}',()=>{
+			assert.deepEqual(namedModifier.exec('?!'),{type:"not"});
+		})
+		it('?`"hello world"`<  -> {type:"postscript",data:"\\"hello world\\""}',()=>{
+			assert.deepEqual(namedModifier.exec('?`"hello world"`<'),{type:"postscript",data:'"hello world"'});
+		})
+		it('?identifier= -> {type:"returnname",data:"identifier"}',()=>{
+			assert.deepEqual(namedModifier.exec('?identifier='),{type:"returnname",data:'identifier'});
+		})
+	})
 	describe('bnf_quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`" // пока только энергичные',()=>{
 		it('{ 3 , 5 } -> {min:3,max:5}',()=>{
 			assert.deepEqual(bnf_quantificator.exec('{ 3 , 5 }'),{min:3,max:5})

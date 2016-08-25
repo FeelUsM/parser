@@ -18,13 +18,20 @@ function Module() {
 	function main(module, exports, require) {
 		...
 	}
-	if(loaded_modules) { // it is not node.js
-		module = new Module();
-		main(module, module.exports, require);
-		loaded_modules["name-of-module"] = module.exports; // change to name of your module
+	try{
+		if(loaded_modules) { // it is not node.js
+			module = new Module();
+			main(module, module.exports, require);
+			loaded_modules["name-of-module"] = module.exports; // change to name of your module
+		}
+		else throw new Error('loaded_modules is false')
 	}
-	else // node.js
-		main(module, exports, require);
+	catch(err){ // node.js
+		if(err instanceof ReferenceError && err.message=='loaded_modules is not defined')
+			main(module, exports, require);
+		else
+			throw err;
+	}
 })()
 
 */

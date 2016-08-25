@@ -370,7 +370,7 @@ var spc = rgx(/^[\ \r\n\t\v\f]/);
 // num ::= "[0-9]+"
 var num = rgx(/^[0-9]+/).then((m)=>+m[0]);
 // identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
-var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/)
+var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then((m)=>m[0])
 
 /*
 quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
@@ -511,21 +511,44 @@ var bnf_quantificator = any(collect,
 );
 exports.bnf_quantificator = bnf_quantificator;
 
-/*
-modifier ::= "`?`(`!`|\\` ([^\\`])* `\\`<`) (`?`identifier`->`)?"
-namedModifier ::= "`?!` | (`?`identifier?`=`)? (`?32\\`` ([^\\`])* `\\`<`)? (`?`identifier`->`)?"
-// возвращает объект {name:false или строка, fun:undefined или function(args,global,stack)}
-// если в тексте функции не встретилось return, оно добавляется перед все строкой
 
-рег: sequence ::= "modifier? (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
-БНФ: sequence ::= "modifier? spc* (symbol quantificator? spc* | `(` alternatives spc* `)` quantificator? spc* )*"
+/*
+modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?"
+namedModifier ::= "modifier | `?`identifier?`=`"
+// возвращает объект {type: строка(not|postscript|backpattern|returnname), data:строка или function(arg,global,stack)}
+// если в тексте функции не встретилось return, оно добавляется перед все строкой
+*/
+function code_to_fun(code) {
+	var fun;
+	if(/^\s*\{/.test(code) && /\}\s*$/.test(code))
+		return new Function('arg','global','stack',code);
+	else
+		return new Function('arg','global','stack','return '+code);
+	return 
+}
+var modifier = seq(need(1), txt('?'), any(collect,
+	txt('!').then((r)=>({type:'not'})),
+	seq(need(1),txt('`'),
+		rgx(/^[^`]*/).then((m)=>({type:'postscript',data:m[0]})),
+		txt('`<'))
+	//,seq(need(0),identifier,txt('->'))   // на будущее
+));
+var namedModifier = any(collect,
+	modifier,
+	seq(need(1),txt('?'), opt(identifier).then(voider).then((s)=>({type:'returnname',data:s})), txt('='))
+);
+exports.namedModifier = namedModifier;
+
+/*
+рег: sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
+БНФ: sequence ::= "(modifier )* spc* (symbol quantificator? spc* | `(` alternatives spc* `)` quantificator? spc* )*"
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
-рег: namedSequence ::= "namedModifier? (symbol quantificator? | \
-`(?`identifier?`=` 	namedAlternatives 	`)` quantificator 	| \
+рег: namedSequence ::= "namedModifier* (symbol quantificator? | \
+`(` namedModifier* `*` 	namedAlternatives 	`)` quantificator 	| \
 `(` 			alternatives 		`)` quantificator 	| \
 `(` 			namedAlternatives 	`)` 			)*"
-БНФ: namedSequence ::= "namedModifier? spc* (symbol quantificator? spc* | \
-`(?`identifier?`=` 	namedAlternatives 	spc* `)` quantificator 	spc* | \
+БНФ: namedSequence ::= "namedModifier* spc* (symbol quantificator? spc* | \
+`(` namedModifier* `*` 	namedAlternatives 	spc* `)` quantificator 	spc* | \
 `(` 			alternatives 		spc* `)` quantificator 	spc* | \
 `(` 			namedAlternatives 	spc* `)` 		spc* )*"
 // последовательность символов с квантификаторами преобразует в один регексп (с галкой в начале)
@@ -545,6 +568,23 @@ main ::= "namedAlternatives `$`?"
 группы надо именовать вручную
 результат группы можно обработать прям сразу
 по умолчанию результат возвращается в JSON
+
+
+
+p_sequence
+	символ		1
+	e_sequence	2...
+	e_cycle		4
+p_alternatives
+	<e_sequence>	...2
+	e_alternatives	3
+
+
+p_sequence, который вызывает символы (с квантификатором), и который создает e_sequence, который вызывает эти символы
+p_sequence, который вызывает p_alternatives (без квантификатора), и который создает e_sequence, который может вызывать результат p_alternatives
+	p_alternatives, который вызывает p_sequence (только один), и который возвращает результат p_sequence
+p_alternatives, который вызывает p_sequence (через | ), и который создает e_alternatives, который может вызывать результат p_sequence
+p_sequence, который вызывает p_alternatives (с квантификатором), и который создает e_cycle, который может вызывать результат p_alternatives
 */
 
 exports.ParseError = ParseError;
@@ -588,6 +628,9 @@ exports.notCollect = notCollect;
 		else throw new Error('loaded_modules is false')
 	}
 	catch(err){ // node.js
-		main(module, exports, require);
+		if(err instanceof ReferenceError && err.message=='loaded_modules is not defined')
+			main(module, exports, require);
+		else
+			throw err;
 	}
 })()
