@@ -1,3 +1,4 @@
+// требует utils
 ;(function(){
 function main(module, exports, require) {
 "use strict";
@@ -22,12 +23,12 @@ var tail_error; // GLOBAL VARIABLE for tail error
 
 // is result
 function isGood(r){
-	return typeof r === 'object' ? !r.err : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? !r.err : r!==undefined ;
 }
 
 // is result or ParseError
 function notFatal(r){
-	return typeof r === 'object' ? r.err===undefined || r.err<2 : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? r.err===undefined || r.err<2 : r!==undefined ;
 }
 function isFatal(r) { return !notFatal(r); }
 
@@ -573,16 +574,113 @@ exports.namedModifier = namedModifier;
 рег: sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
 БНФ: sequence ::= "(modifier )* spc* (symbol quantificator? spc* | `(` alternatives spc* `)` quantificator? spc* )*"
 */
+
+function minmaxToRegExp({min,max}) {
+	if(min==0 && max==1)
+		return '?';
+	else if(min==0 && max==Infinity) {
+		return '*'
+	}
+	else if(min==1 && max==Infinity) {
+		return '+'
+	}
+	else if(max==Infinity) {
+		return '{'+min+',}'
+	}
+	else if(min==max) {
+		return '{'+min+'}'
+	}
+	else
+		return '{'+min+','+max+'}'
+}
 var reg_sequence = seq(need_all,
 	rep(modifier),
-	rep(seq(need_all,
+	rep(/*any*/seq(need_all,
 		reg_symbol,
 		opt(reg_quantificator).then(
-			(r)=>typeof r === 'object' && r.err===0 ? [] : r
+			(r)=>typeof r === 'object' && r.err===0 ? null : r
 		)
 	))
-).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e));
+).then(([modifiers,patterns])=>{
+	var compressed_patterns = [];
+	/*
+	создаем массив паттернов, которые будет вызывать e_sequence
+	последовательность символов объединяем в один регексп
+	*/
+	var cache = [];
+	patterns.forEach(([pat,quant])=>{
+		if(typeOf(pat)==='string')
+			cache.push(escaper(pat)+(quant===null ? '' : minmaxToRegExp(quant)))
+		else if(pat instanceof RegExp)
+			cache.push(pat.source+(quant===null ? '' : minmaxToRegExp(quant)))
+		else if(pat instanceof Function) {
+			if(cache.length>0)
+				compressed_patterns.push(new RegExp('^'+cache.join('')));
+			cache = [];
+			// #todo добавить в паттерн
+			// и обработку функции и ее квантификатора
+		}
+		else console.assert(false,'неизвестный тип паттерна')
+	})
+	if(cache.length>0)
+		compressed_patterns.push(new RegExp('^'+cache.join('')));
+	cache = [];
+	/*
+	обрабатываем модификаторы: четное или нечетное количество not
+	если нечетное - выдаем одну функцию, которая обработчики игнорирует
+	иначе - другую, которая выполняет их справа налево в цикле
+	вначале все обработчики должны быть функциями bkb 
+	*/
+	var i = modifiers.length - 1;
+	var not = false;
+	while(i>=0) {
+		if(modifiers[i].type==='not'){
+			not = !not;
+			modifiers.splice(i,1);
+		}
+		i--;
+	}
+	function e_sequence(str,pos,res) { // compressed_patterns, not - closure
+		var i;
+		var inres = [];
+		for(i=0;i<compressed_patterns.length;i++)
+			if(compressed_patterns[i] instanceof RegExp){
+				var m;
+				if (m = compressed_patterns[i].exec(str.slice(pos.x))){
+					pos.x += m.index + m[0].length;
+					inres.push(m[0]);
+				}
+				else
+					return new FatalError(pos.x,'не могу прочитать '+compressed_patterns[i].source)
+			}
+			else if(compressed_patterns[i] instanceof Function) {
+				// #todo
+			}
+			else console.assert(false,'неизвестный тип паттерна');
+		res.res = inres.join('');
+		if(!not) {
+			//обработчики
+			;
+		}
+		return true;
+	}
+	if(not) {
+		return function not_e_sequence(str,pos,res) {
+			var x = pos.x;
+			var r = e_sequence(str,pos,res);
+			res.res = '';
+			pos.x = x;
+			return !isGood(r) ? undefined : {err:"break"};
+		}
+	}
+	else
+		return e_sequence;
+},(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e));
 exports.reg_sequence = reg_sequence;
+/*
+alternatives ::= "sequence (`|`sequence)*"
+*/
+var e_sequence = seq()
 /*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
 рег: namedSequence ::= "namedModifier* (symbol quantificator? | \
@@ -596,7 +694,6 @@ exports.reg_sequence = reg_sequence;
 // последовательность символов с квантификаторами преобразует в один регексп (с галкой в начале)
 // 
 
-alternatives ::= "sequence (`|`sequence)*"
 namedAlternatives ::= "namedSequence (`|`namedSequence)*"
 
 main ::= "namedAlternatives `$`?"

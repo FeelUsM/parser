@@ -17,7 +17,7 @@
     var assert = chai.assert;
   </script>
 
-  <script src="props_manager.js"></script>
+  <script src="utils.js"></script>
   <script src="modules_manager.js"></script>
   <script src="parser.js"> </script>
 
@@ -35,39 +35,50 @@
 			assert.deepEqual(expected,real);
 		}
 	}
-/*		it('test assertDeepDiff',()=>{
-			var lhs = {
-				name: 'my object',
-				description: 'it\'s an object!',
-				details: {
-					it: 'has',
-					an: 'array',
-					with: ['a', 'few', 'elements']
-				}
-			};
-
-			var rhs = {
-				name: 'updated object',
-				description: 'it\'s an object!',
-				details: {
-					it: 'has',
-					an: 'array',
-					with: ['a', 'few', 'more', 'elements', { than: 'before' }]
-				}
-			};
-			assertDeepEqual(rhs,lhs);
+	describe('reg_sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*"',()=>{
+		describe('script feature',()=>{
+			it('"?`{throw {readed:arg}}`<abc" -> fun(abc) -> new ParseError(pos,{readed:"abc"})',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc')('abc',{x:0},res),new ParseError(pos,{readed:"abc"}));
+			})
+			it('"?`{return {readed:arg}}`<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}')('abc',{x:0},res),true);
+				assertDeepEqual(res.res,{readed:"abc"});
+			})
+			it('"?`arg+arg`?`arg+arg`<abc" -> fun(abc -> abcabcabcabc) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?`arg+arg`<'+'?`arg+arg`<abc')('abc',{x:0},res),true);
+				assert.strictEqual(res.res,'abcabcabcabc');
+			})
+			it('"?`arg+arg`<abc" -> fun(abc -> abcabc) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?`arg+arg`<abc')('abc',{x:0},res),true);
+				assert.strictEqual(res.res,'abcabc');
+			})
+			it('"?{readed:arg}<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?{readed:arg}<abc')('abc',{x:0},res),true);
+				assertDeepEqual(res.res,{readed:"abc"});
+			})
 		})
-		it('test throw',()=>{
-			function foo(nest) {
-				if(nest===20)
-					throw new Error('some\nmulti\nline\nstring\nvery\nv\ne\nr\ny\nm\nu\nl\nt\ny\nline')
-				else
-					foo(nest+1);
-			}
-			foo(0)
+		describe('not feature',()=>{
+			it('"?!abc" -> fun(ab->"") -> undefined',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?!abc')('ab',{x:0},res),undefined);
+				assert.strictEqual(res.res,'');
+			})
+			it('"?!abc" -> fun(abc) -> {err:"break"}',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('?!abc')('abc',{x:0},res),{err:"break"});
+			})
 		})
-*/	
-	
+		it('"abc" -> fun(abc -> abc) -> true',()=>{
+			var res = {};
+			assertDeepEqual(reg_sequence.exec('abc')('abc',{x:0},res),true);
+			assert.strictEqual(res.res,'abc');
+		})
+	})
 	describe('modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
 		it('?! -> {type:"not"}',()=>{
 			assertDeepEqual(namedModifier.exec('?!'),{type:"not"});
@@ -230,6 +241,107 @@
 			assertDeepEqual(quotedSequence.exec(''),new FatalError(0,'не могу прочитать quotedSequence'));
 		})
 	})
+	describe('meta parser',()=>{
+		describe('isGood',function(){
+			it('sould be TRUE for: number 0',function(){
+				assert.equal(isGood(0),true);
+			})
+			it('sould be TRUE for: number 2',function(){
+				assert.equal(isGood(2),true);
+			})
+			it('sould be TRUE for: empty string',function(){
+				assert.equal(isGood(''),true);
+			})
+			it('sould be TRUE for: not empty string',function(){
+				assert.equal(isGood('123'),true);
+			})
+			it('sould be TRUE for: {}',function(){
+				assert.equal(isGood({}),true);
+			})
+			it('sould be TRUE for: {err:0}',function(){
+				assert.equal(isGood({err:0}),true);
+			})
+			it('sould be FALSE for: {err:1}',function(){
+				assert.equal(isGood({err:1}),false);
+			})
+			it('sould be FALSE for: {err:2}',function(){
+				assert.equal(isGood({err:2}),false);
+			})
+			it('sould be TRUE for: null',function(){
+				assert.equal(isGood(null),true);
+			})
+			it('sould be FALSE for: undefined',function(){
+				assert.equal(isGood(),false);
+			})
+		})
+		describe('notFatal',function(){
+			it('sould be TRUE for: number 0',function(){
+				assert.equal(isGood(0),true);
+			})
+			it('sould be TRUE for: number 2',function(){
+				assert.equal(isGood(2),true);
+			})
+			it('sould be TRUE for: empty string',function(){
+				assert.equal(isGood(''),true);
+			})
+			it('sould be TRUE for: not empty string',function(){
+				assert.equal(isGood('123'),true);
+			})
+			it('sould be TRUE for: {}',function(){
+				assert.equal(notFatal({}),true);
+			})
+			it('sould be TRUE for: {err:0}',function(){
+				assert.equal(notFatal({err:0}),true);
+			})
+			it('sould be TRUE for: {err:1}',function(){
+				assert.equal(notFatal({err:1}),true);
+			})
+			it('sould be FALSE for: {err:2}',function(){
+				assert.equal(notFatal({err:2}),false);
+			})
+			it('sould be TRUE for: null',function(){
+				assert.equal(isGood(null),true);
+			})
+			it('sould be FALSE for: undefined',function(){
+				assert.equal(notFatal(),false);
+			})
+		})
+	})
+	/*
+	describe('mocha',()=>{
+		it('test assertDeepDiff',()=>{
+			var lhs = {
+				name: 'my object',
+				description: 'it\'s an object!',
+				details: {
+					it: 'has',
+					an: 'array',
+					with: ['a', 'few', 'elements']
+				}
+			};
+
+			var rhs = {
+				name: 'updated object',
+				description: 'it\'s an object!',
+				details: {
+					it: 'has',
+					an: 'array',
+					with: ['a', 'few', 'more', 'elements', { than: 'before' }]
+				}
+			};
+			assertDeepEqual(rhs,lhs);
+		})
+		it('test throw',()=>{
+			function foo(nest) {
+				if(nest===20)
+					throw new Error('some\nmulti\nline\nstring\nvery\nv\ne\nr\ny\nm\nu\nl\nt\ny\nline')
+				else
+					foo(nest+1);
+			}
+			foo(0)
+		})
+	});
+	*/
 		mocha.run();
 })()
 	</script>

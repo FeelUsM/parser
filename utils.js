@@ -47,3 +47,39 @@ function checkProps(obj,names){
 			console.warn('property '+names[i]+' is epsent')
 }
 
+// nodejs compatible on server side and in the browser.
+function inherits(ctor, superCtor) {
+	ctor.super_ = superCtor;
+	ctor.prototype = Object.create(superCtor.prototype, {
+		constructor: {
+			value: ctor,
+			enumerable: false,
+			writable: true,
+			configurable: true
+		}
+	});
+}
+
+function typeOf(x) {
+	return typeof x;
+}
+
+function realTypeOf(subject) {
+	var type = typeof subject;
+	if (type !== 'object') {
+		return type;
+	}
+
+	if (subject === Math) {
+		return 'math';
+	} else if (subject === null) {
+		return 'null';
+	} else if (Array.isArray(subject)) {
+		return 'array';
+	} else if (Object.prototype.toString.call(subject) === '[object Date]') {
+		return 'date';
+	} else if (typeof subject.toString !== 'undefined' && /^\/.*\//.test(subject.toString())) {
+		return 'regexp';
+	}
+	return 'object';
+}
