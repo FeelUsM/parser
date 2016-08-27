@@ -39,11 +39,11 @@
 		describe('script feature',()=>{
 			it('"?`{throw {readed:arg}}`<abc" -> fun(abc) -> new ParseError(pos,{readed:"abc"})',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc')('abc',{x:0},res),new ParseError(pos,{readed:"abc"}));
+				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc')('abc',{x:0},res),new ParseError(0,{readed:"abc"}));
 			})
 			it('"?`{return {readed:arg}}`<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}')('abc',{x:0},res),true);
+				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}`<abc')('abc',{x:0},res),true);
 				assertDeepEqual(res.res,{readed:"abc"});
 			})
 			it('"?`arg+arg`?`arg+arg`<abc" -> fun(abc -> abcabcabcabc) -> true',()=>{
@@ -79,15 +79,46 @@
 			assert.strictEqual(res.res,'abc');
 		})
 	})
-	describe('modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
-		it('?! -> {type:"not"}',()=>{
-			assertDeepEqual(namedModifier.exec('?!'),{type:"not"});
+	describe('modifier ::= "`?` ( `!` | ( \\` ([^\\`])* \\` | `\\`{` ([^\\`])* `}\\`` | object )`<` | identifier`->`)" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
+		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
+			it('?identifier-> -> {type:"back",data:"identifier"}',()=>{
+				assertDeepEqual(namedModifier.exec('?identifier->'),{type:"back",data:"identifier"});
+			})
 		})
-		it('?`"hello world"`<  -> {type:"postscript",data:"\\"hello world\\""}',()=>{
-			assertDeepEqual(namedModifier.exec('?`"hello world"`<'),{type:"postscript",data:'"hello world"'});
+		describe('negate feature',()=>{
+			it('?! -> {type:"not"}',()=>{
+				assertDeepEqual(namedModifier.exec('?!'),{type:"not"});
+			})
 		})
-		it('?identifier= -> {type:"returnname",data:"identifier"}',()=>{
-			assertDeepEqual(namedModifier.exec('?identifier='),{type:"returnname",data:'identifier'});
+		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
+			it('?`"hello world"`<  -> {type:"postscript",data:fun(arg,global,stack)->"hello world"}',()=>{
+				var res = namedModifier.exec('?`"hello world"`<')
+				assert.strictEqual(res.type,"postscript")
+				assert.strictEqual(res.data({},{},{}),"hello world");
+			})
+			it('?`{return "hello world"}`<  -> {type:"postscript",data:fun(arg,global,stack)->"hello world"}',()=>{
+				var res = namedModifier.exec('?`{return "hello world"}`<')
+				assert.strictEqual(res.type,"postscript")
+				assert.strictEqual(res.data({},{},{}),"hello world");
+			})
+			describe('complicated object',()=>{
+				it('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<  -> {type:"postscript",data:fun(arg,global,stack)->{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',()=>{
+					var res = namedModifier.exec('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<')
+					assert.strictEqual(res.type,"postscript")
+					assertDeepEqual(res.data({},{},{}),{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}});
+				})
+				it('object: {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}} -> "{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}"',()=>{
+					assertDeepEqual(object.exec('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}'),'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}')
+				})
+				it('string: "{{{}{}}}}}}{}{}}{" -> "{{{}{}}}}}}{}{}}{"',()=>{
+					assert.strictEqual(string.exec('"{{{}{}}}}}}{}{}}{"'),'"{{{}{}}}}}}{}{}}{"')
+				})
+			})
+		})
+		describe('return name feture',()=>{
+			it('?identifier= -> {type:"returnname",data:"identifier"}',()=>{
+				assertDeepEqual(namedModifier.exec('?identifier='),{type:"returnname",data:'identifier'});
+			})
 		})
 	})
 	describe('bnf_quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`" // пока только энергичные',()=>{

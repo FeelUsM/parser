@@ -20,6 +20,7 @@ function FatalError(where,what,by){
 	this.by = by;
 }
 var tail_error; // GLOBAL VARIABLE for tail error
+var parser_debug; // GLOBAL VARIABLE for tail error
 
 // is result
 function isGood(r){
@@ -56,16 +57,17 @@ function read_all(str, pos, pattern) {
 
 // основной конструктор
 function Pattern(exec) {
+	
 	// если pos не передан, то строка должна соответствовать паттерну от начала и до конца
 	// иначе ParseError(pos.x,'остались неразобранные символы',r)
-    this.exec = function pattern_exec(str, pos/*.x*/){
+	this.exec = function pattern_exec(str, pos/*.x*/){
 		tail_error = undefined;
 		if(pos === undefined) return read_all(str,pos,exec);
 		else return exec(str,pos);
 	};
 	// если результат - то transform, иначе - error_transform
 	// можно преобразовать результат в ошибку и наоборот
-    this.then = function pattern_then(transform/*(r,x)*/,error_transform/*(x,r)*/) {
+	this.then = function pattern_then(transform/*(r,x)*/,error_transform/*(x,r)*/) {
 		if(error_transform){
 			console.assert(typeof error_transform === 'function')
 			if(typeof transform === 'function')
@@ -99,8 +101,9 @@ function Pattern(exec) {
 	}
 }
 function Forward(){
-	this.exec = function forwrd_exec(){		return this.pattern.exec.apply(this.pattern,arguments);	}
-	this.then = function forward_then(){	return this.pattern.then.apply(this.pattern,arguments);	}
+	var self = this;
+	this.exec = function forward_exec(){		return self.pattern.exec.apply(self.pattern,arguments);	}
+	this.then = function forward_then(){	return self.pattern.then.apply(self.pattern,arguments);	}
 }
 
 
@@ -555,14 +558,28 @@ function code_to_fun(code) {
 		return new Function('arg','global','stack',code);
 	else
 		return new Function('arg','global','stack','return '+code);
-	return 
 }
+var string = any(collect,
+	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
+	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
+).then(0,x=>new FatalError(x,'не могу прочитать строку js'));
+exports.string = string;
+var object = new Forward();
+object.pattern = seq(need_all,txt('{'),
+	rep(any(collect,
+		rgx(/^[^'"\{\}]/).then(m=>m[0]),
+		string,
+		object
+	),star).then(merger)
+,txt('}')).then(merger);
+exports.object = object;
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
 	seq(need(1),txt('`'),
-		rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
-		txt('`<'))
-	//,seq(need(0),identifier,txt('->'))   // на будущее
+		rgx(/^[^`]*/).then(m=>({type:'postscript',data:code_to_fun(m[0])})),
+		txt('`<')),
+	seq(need(0),object.then(s=>({type:'postscript',data:code_to_fun('{return '+s+'}')})),txt('<')),
+	seq(need(0),identifier,txt('->')).then(s=>({type:'back',data:s}))   // на будущее
 )).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
 	modifier,
@@ -640,9 +657,10 @@ var reg_sequence = seq(need_all,
 		}
 		i--;
 	}
-	function e_sequence(str,pos,res) { // compressed_patterns, not - closure
+	function e_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
 		var i;
 		var inres = [];
+		var X = pos.x
 		for(i=0;i<compressed_patterns.length;i++)
 			if(compressed_patterns[i] instanceof RegExp){
 				var m;
@@ -660,7 +678,15 @@ var reg_sequence = seq(need_all,
 		res.res = inres.join('');
 		if(!not) {
 			//обработчики
-			;
+			try{
+				var i = modifiers.length - 1;
+				while(i>=0) {
+					res.res = modifiers[i].data(res.res); // #todo global, stack
+					i--;
+				}
+			}catch(err) {
+				return new ParseError(X,err) // #todo stack
+			}
 		}
 		return true;
 	}
@@ -668,8 +694,8 @@ var reg_sequence = seq(need_all,
 		return function not_e_sequence(str,pos,res) {
 			var x = pos.x;
 			var r = e_sequence(str,pos,res);
-			res.res = '';
 			pos.x = x;
+			res.res = '';
 			return !isGood(r) ? undefined : {err:"break"};
 		}
 	}
