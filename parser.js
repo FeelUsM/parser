@@ -742,7 +742,16 @@ var reg_sequence = seq(need_all,
 			else if(compressed_patterns[i].type==='pattern') {
 				console.assert(compressed_patterns[i].mode==='cat','происходит вызов объектного паттерна из конкатенирующего');
 				var back_res = {};
-				
+				/* если не строка, то stringifyцируем, 
+				   если FatalError - возвращаем FatalError
+					+ если задано name - обернуть в новый FatalError и завершить
+				   если ParseError, 
+					если режим не error, удаляем результаты, кладем туда ошибку, ставим режим error
+					иначе, добавляем ошибку
+				   в режиме error правильные результаты игнорируются
+				   в конце, вызываются обработчики с arg=undefined и errors = массиву ошибок
+					после обработчиков, если задано name или имеется больше одной ошибки - обернуть в новый ParseError
+				*/
 			}
 			else if(compressed_patterns[i].type==='link') {
 				// #todo
@@ -754,7 +763,7 @@ var reg_sequence = seq(need_all,
 			try{
 				var i = modifiers.length - 1;
 				while(i>=0) {
-					result = modifiers[i].data(result); // #todo global, stack
+					result = modifiers[i].data(result); // #todo global, errors, pos, stack
 					i--;
 				}
 			}catch(err) {
