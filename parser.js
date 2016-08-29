@@ -4,6 +4,11 @@ function main(module, exports, require) {
 "use strict";
 
 //мы поняли то что прочитали, но это не то, что мы хотим
+// в этом случае обработка прекращается (т.к. вместо результата ParseError), а парсинг (последовательностей) продолжается
+// это не влияет на последовательность выполнения seq, rep и opt
+// это влияет только на any, в самом деле: если синтаксически удалось разобрать 2 варианта, и в одном из них произошла логическая ошибка, 
+//    то логично использовать разобранный вариант, где нет ошибок
+//    но на практике это встречается редко
 function ParseError(where,what,res){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
 	this.err = 1
@@ -157,6 +162,8 @@ function opt(pattern) {
 }
 
 // читает последовательность, в случае неудачи позицию НЕ восстанавливает
+// если ParseError - чтение продолжается, если FatalError - чтение сразу завершается с FatalError, и то же произойдет в предыдущей последовательности
+// #todo 
 //от isFatal зависит, что будет включено в ответ
 function read_seq(str, pos, isFatal, patterns) {
 	var res = {a:[]}; // a - array
@@ -488,11 +495,16 @@ exports.bnf_class = bnf_class;
 
 
 /*
-balansedBrackets ::= "`(`([^`(`]|balansedBrackets)*`)`" 
+balansedBrackets ::= "`(`([^`()`]|balansedBrackets)*`)`" 
 рег: link ::= "`$`(identifier|`{`identifier balansedBrackets? `}`)"
 БНФ: link ::= "`$`( identifier | `{` identifier balansedBrackets?`}` ) | identifier balansedBrackets?" // без пробелов
 // возвращает ссылку на паттерн
 */
+
+var reg_link = seq(need(1),txt('$'),
+	any(collect,identifier,
+		seq(need(1),txt('{'),identifier,txt('}')))
+)
 
 /*
 symbol ::= "char|quotedSequence|class|link"
@@ -500,6 +512,7 @@ symbol ::= "char|quotedSequence|class|link"
 */
 var reg_symbol = any(collect,reg_char,quotedSequence,reg_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_symbol',e));
 var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать bnf_symbol',e));
+// отличия:                   ^                       ^                                                            ^
 
 /*
 рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
@@ -576,14 +589,15 @@ exports.object = object;
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
 	seq(need(1),txt('`'),
-		rgx(/^[^`]*/).then(m=>({type:'postscript',data:code_to_fun(m[0])})),
+		rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
 		txt('`<')),
-	seq(need(0),object.then(s=>({type:'postscript',data:code_to_fun('{return '+s+'}')})),txt('<')),
-	seq(need(0),identifier,txt('->')).then(s=>({type:'back',data:s}))   // на будущее
+	seq(need(0),object.then(s=>({type:'postscript',data:'{return '+s+'}'})),txt('<')),
+	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s}))   // на будущее
 )).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
 	modifier,
-	seq(need(1),txt('?'), opt(identifier).then(voider).then(s=>({type:'returnname',data:s})), txt('='))
+	seq(need(1),txt('?'), opt(identifier).then(voider).then(s=>({type:'returnname',data:s})), txt('='))//,
+	//txt('*').then(()=>({type:'delimiter'}))
 ).then(0,(x,e)=>new FatalError(x,'не могу прочитать namedModifier',e));
 exports.namedModifier = namedModifier;
 
@@ -610,34 +624,64 @@ function minmaxToRegExp({min,max}) {
 	else
 		return '{'+min+','+max+'}'
 }
+var reg_alternatives = new Forward();
+var code_to_funer = m=>{ if(m.type==='postscript') m.data = code_to_fun(m.data); return m};
+var pos_adder = (m,x)=>{m.pos = x; return m;};
 var reg_sequence = seq(need_all,
-	rep(modifier),
-	rep(/*any*/seq(need_all,
-		reg_symbol,
-		opt(reg_quantificator).then(
-			(r)=>typeof r === 'object' && r.err===0 ? null : r
-		)
+	rep(namedModifier.then(code_to_funer).then(pos_adder)),
+	rep(any(collect,
+		seq(need_all,
+			reg_symbol,
+			opt(reg_quantificator).then(
+				(r)=>typeof r === 'object' && r.err===0 ? null : r
+			)
+		).then(([symbol,quant])=>({type:'symbol',symbol,quant})),
+		seq(need(1,2,4),
+			txt('('),
+			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*'))).then(ms=>{
+				if(ms.err===0)	return [];
+				else return ms.forEach(code_to_funer)
+			}),
+			reg_alternatives,
+			txt(')'),
+			opt(reg_quantificator).then(
+				(r)=>typeof r === 'object' && r.err===0 ? null : r
+			)
+		).then(([cycle_modifiers,{mode,fun},quant],x)=>
+			quant ? {type:'cycle',cycle_modifiers,mode,fun,quant,pos:x} :
+			cycle_modifiers.length>0 ? new ParseError(x,'модификаторы цикла можно задавать только к циклу') :
+			{type:'pattern',mode,fun,pos:x}),
+		reg_link.then((s,x)=>({type:'link',link:s,pos:x}))
 	))
 ).then(([modifiers,patterns])=>{
+	var mode = 'cat';
 	var compressed_patterns = [];
 	/*
 	создаем массив паттернов, которые будет вызывать e_sequence
 	последовательность символов объединяем в один регексп
 	*/
 	var cache = [];
-	patterns.forEach(([pat,quant])=>{
-		if(typeOf(pat)==='string')
-			cache.push(escaper(pat)+(quant===null ? '' : minmaxToRegExp(quant)))
-		else if(pat instanceof RegExp)
-			cache.push(pat.source+(quant===null ? '' : minmaxToRegExp(quant)))
-		else if(pat instanceof Function) {
+	patterns.forEach(m=>{
+		if(m.type === 'symbol') {
+			if(typeOf(m.symbol)==='string')
+				cache.push(escaper(m.symbol)+(m.quant===null ? '' : minmaxToRegExp(m.quant)))
+			else if(m.symbol instanceof RegExp)
+				cache.push(m.symbol.source+(m.quant===null ? '' : minmaxToRegExp(m.quant)))
+			else console.assert(false,'неизвестный тип символа')
+		}
+		else {
 			if(cache.length>0)
 				compressed_patterns.push(new RegExp('^'+cache.join('')));
 			cache = [];
-			// #todo добавить в паттерн
-			// и обработку функции и ее квантификатора
+			if(m.type === 'pattern' || m.type === 'link') {
+				if(m.mode==='obj') mode = 'obj';
+				compressed_patterns.push(m);
+			} 
+			else if(m.type === 'cycle') {
+				// #todo создание функции цикла, преобразовать m.type = 'pattern'
+			}
+			else console.assert(false,'неизвестный тип символа или паттерна или цикла')
 		}
-		else console.assert(false,'неизвестный тип паттерна')
 	})
 	if(cache.length>0)
 		compressed_patterns.push(new RegExp('^'+cache.join('')));
@@ -650,14 +694,38 @@ var reg_sequence = seq(need_all,
 	*/
 	var i = modifiers.length - 1;
 	var not = false;
+	var name = null;
+	var back_pattern = null;
 	while(i>=0) {
-		if(modifiers[i].type==='not'){
+		if(modifiers[i].type==='not') {
 			not = !not;
 			modifiers.splice(i,1);
 		}
+		else if(modifiers[i].type==='name') {
+			if(name===null)
+				name = modifiers[i].data;
+			else
+				return new ParseError(modifiers[i].pos,'повторно указанное имя');
+			modifiers.splice(i,1);
+		}
+		else if(modifiers[i].type === 'back_pattern') {
+			if(compressed_patterns.length)
+				return new ParseError(modifiers[i].pos,'нельзя одновременно указывать обратный паттерн и паттерн');
+			if(back_pattern===null)
+				back_pattern = modifiers[i].data;
+			else
+				return new ParseError(modifiers[i].pos,'повторно указанный back_pattern');
+		}
+		else if(modifiers[i].type!=='postscript')
+			console.assert(false,'неизвестный тип модификатора: '+modifiers[i].type)
 		i--;
 	}
-	function e_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
+	if(compressed_patterns.length==1 && compressed_patterns[0].type=='link' && name!=null)
+		mode = 'obj'
+	if(back_pattern) {
+		// #todo
+	}
+	function cat_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
 		var i;
 		var inres = [];
 		var X = pos.x
@@ -671,32 +739,44 @@ var reg_sequence = seq(need_all,
 				else
 					return new FatalError(pos.x,'не могу прочитать '+compressed_patterns[i].source)
 			}
-			else if(compressed_patterns[i] instanceof Function) {
+			else if(compressed_patterns[i].type==='pattern') {
+				console.assert(compressed_patterns[i].mode==='cat','происходит вызов объектного паттерна из конкатенирующего');
+				var back_res = {};
+				
+			}
+			else if(compressed_patterns[i].type==='link') {
 				// #todo
 			}
 			else console.assert(false,'неизвестный тип паттерна');
-		res.res = inres.join('');
+		var result = inres.join('');
 		if(!not) {
 			//обработчики
 			try{
 				var i = modifiers.length - 1;
 				while(i>=0) {
-					res.res = modifiers[i].data(res.res); // #todo global, stack
+					result = modifiers[i].data(result); // #todo global, stack
 					i--;
 				}
 			}catch(err) {
 				return new ParseError(X,err) // #todo stack
 			}
 		}
+		if(name)
+			res.res[name] = result;
+		else
+			res.res = result; // возврат по ссылке
 		return true;
 	}
+	function obj_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
+	}
+	var e_sequence = mode ==='obj' ? obj_sequence : cat_sequence;
 	if(not) {
 		return function not_e_sequence(str,pos,res) {
 			var x = pos.x;
-			var r = e_sequence(str,pos,res);
+			var r = e_sequence(str,pos,{});
 			pos.x = x;
 			res.res = '';
-			return !isGood(r) ? undefined : {err:"break"};
+			return !isGood(r) ? {err:"continue"} : {err:"break"};
 		}
 	}
 	else
@@ -706,7 +786,7 @@ exports.reg_sequence = reg_sequence;
 /*
 alternatives ::= "sequence (`|`sequence)*"
 */
-var e_sequence = seq()
+reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
 /*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
 рег: namedSequence ::= "namedModifier* (symbol quantificator? | \

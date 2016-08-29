@@ -35,7 +35,10 @@
 			assert.deepEqual(expected,real);
 		}
 	}
-	describe('reg_sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*"',()=>{
+	describe('complex tests for one ',()=>{
+		
+	})
+	describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
 		describe('script feature',()=>{
 			it('"?`{throw {readed:arg}}`<abc" -> fun(abc) -> new ParseError(pos,{readed:"abc"})',()=>{
 				var res = {};
@@ -63,9 +66,9 @@
 			})
 		})
 		describe('not feature',()=>{
-			it('"?!abc" -> fun(ab->"") -> undefined',()=>{
+			it('"?!abc" -> fun(ab->"") -> {err:"continue"}',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?!abc')('ab',{x:0},res),undefined);
+				assertDeepEqual(reg_sequence.exec('?!abc')('ab',{x:0},res),{err:"continue"});
 				assert.strictEqual(res.res,'');
 			})
 			it('"?!abc" -> fun(abc) -> {err:"break"}',()=>{
@@ -82,7 +85,7 @@
 	describe('modifier ::= "`?` ( `!` | ( \\` ([^\\`])* \\` | `\\`{` ([^\\`])* `}\\`` | object )`<` | identifier`->`)" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
 		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
 			it('?identifier-> -> {type:"back",data:"identifier"}',()=>{
-				assertDeepEqual(namedModifier.exec('?identifier->'),{type:"back",data:"identifier"});
+				assertDeepEqual(namedModifier.exec('?identifier->'),{type:"back_pattern",data:"identifier"});
 			})
 		})
 		describe('negate feature',()=>{
@@ -91,21 +94,15 @@
 			})
 		})
 		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
-			it('?`"hello world"`<  -> {type:"postscript",data:fun(arg,global,stack)->"hello world"}',()=>{
-				var res = namedModifier.exec('?`"hello world"`<')
-				assert.strictEqual(res.type,"postscript")
-				assert.strictEqual(res.data({},{},{}),"hello world");
+			it('?`"hello world"`<  -> {type:"postscript",data:""hello world""}',()=>{
+				assertDeepEqual(namedModifier.exec('?`"hello world"`<'),{type:"postscript",data:'"hello world"'})
 			})
 			it('?`{return "hello world"}`<  -> {type:"postscript",data:fun(arg,global,stack)->"hello world"}',()=>{
-				var res = namedModifier.exec('?`{return "hello world"}`<')
-				assert.strictEqual(res.type,"postscript")
-				assert.strictEqual(res.data({},{},{}),"hello world");
+				assertDeepEqual(namedModifier.exec('?`{return "hello world"}`<'),{type:"postscript",data:'{return "hello world"}'})
 			})
 			describe('complicated object',()=>{
 				it('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<  -> {type:"postscript",data:fun(arg,global,stack)->{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',()=>{
-					var res = namedModifier.exec('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<')
-					assert.strictEqual(res.type,"postscript")
-					assertDeepEqual(res.data({},{},{}),{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}});
+					assertDeepEqual(namedModifier.exec('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<'),{type:"postscript",data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}'})
 				})
 				it('object: {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}} -> "{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}"',()=>{
 					assertDeepEqual(object.exec('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}'),'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}')
