@@ -26,14 +26,39 @@
 	<div id="mocha"/>
 <script>
 ;(function(){
-'use strict';
+	'use strict';
 	copyProps(require('parser'),window);
-	function assertDeepEqual(real,expected){
-		var diff = DeepDiff(expected,real);
-		if(diff.length!==0) {
-			console.log(diff);
+	function assertDeepEqual(real,expected) {
+		try{
 			assert.deepEqual(expected,real);
 		}
+		catch(err){
+			//console.log(err)
+			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+'\nreal: '+JSON.stringify(real,'',4);
+			//console.log(err)
+			throw err
+		}
+		/*
+		var diff = DeepDiff(expected,real);
+		if(diff.length!==0) {
+			//console.log(diff);
+		}*/
+	}
+	function it_sf(str,fun,code) {
+		function tmp() {
+			code(str,fun());
+		}
+		tmp.toString = code.toString.bind(code);
+		var fs = fun.toString();
+		fs = /^\(\)=>/.test(fs) ? fs.slice(4) : fs;
+		it('"'+str+'" ---> '+fs,tmp);
+	}
+	function it_sr(str,res,code) {
+		function tmp() {
+			code(str,res);
+		}
+		tmp.toString = code.toString.bind(code);
+		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
 	}
 	describe('complex tests for one ',()=>{
 		
@@ -84,25 +109,41 @@
 	})
 	describe('modifier ::= "`?` ( `!` | ( \\` ([^\\`])* \\` | `\\`{` ([^\\`])* `}\\`` | object )`<` | identifier`->`)" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
 		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
-			it('?identifier-> -> {type:"back",data:"identifier"}',()=>{
-				assertDeepEqual(namedModifier.exec('?identifier->'),{type:"back_pattern",data:"identifier"});
+			it_sr('?identifier->',{type:"back_pattern",data:"identifier"},(s,r)=>{
+				assertDeepEqual(namedModifier.exec(s),r);
 			})
 		})
 		describe('negate feature',()=>{
-			it('?! -> {type:"not"}',()=>{
-				assertDeepEqual(namedModifier.exec('?!'),{type:"not"});
+			it_sr('?!',{type:"not"},(s,r)=>{
+				assertDeepEqual(namedModifier.exec(s),r);
 			})
 		})
 		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
-			it('?`"hello world"`<  -> {type:"postscript",data:""hello world""}',()=>{
-				assertDeepEqual(namedModifier.exec('?`"hello world"`<'),{type:"postscript",data:'"hello world"'})
+			it_sr('?`"hello world"`error<',{type:"postscript",data:'"hello world"',error:true},(s,r)=>{
+				assertDeepEqual(namedModifier.exec(s),r)
 			})
-			it('?`{return "hello world"}`<  -> {type:"postscript",data:fun(arg,global,stack)->"hello world"}',()=>{
-				assertDeepEqual(namedModifier.exec('?`{return "hello world"}`<'),{type:"postscript",data:'{return "hello world"}'})
+			it_sr('?`"hello world"`<',{type:"postscript",data:'"hello world"',error:false},(s,r)=>{
+				assertDeepEqual(namedModifier.exec(s),r)
+			})
+			it_sr('?`{return "hello world"}`<',{type:"postscript",data:'{return "hello world"}',error:false},(s,r)=>{
+				assertDeepEqual(namedModifier.exec(s),r)
 			})
 			describe('complicated object',()=>{
-				it('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<  -> {type:"postscript",data:fun(arg,global,stack)->{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',()=>{
-					assertDeepEqual(namedModifier.exec('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<'),{type:"postscript",data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}'})
+				it_sr('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
+					{	type:"postscript",
+						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
+						error:false
+					},
+					(s,r)=>{
+					assertDeepEqual(namedModifier.exec(s),r)
+				})
+				it_sr('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
+					{	type:"postscript",
+						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
+						error:true
+					},
+					(s,r)=>{
+						assertDeepEqual(namedModifier.exec(s),r)
 				})
 				it('object: {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}} -> "{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}"',()=>{
 					assertDeepEqual(object.exec('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}'),'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}')
@@ -239,34 +280,34 @@
 		})
 	})
 	describe('reg_char ::= /'+/[^ \\\/` `|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it('1 -> 1',()=>{
-			assert.strictEqual(reg_char.exec('1'),'1');
+		it_sr('1','1',(s,r)=>{
+			assert.strictEqual(reg_char.exec(s),r);
 		})
 		it('$ -> error',()=>{
 			assert.instanceOf(reg_char.exec('$'),FatalError);
 		})
-		it('\\$ -> $',()=>{
-			assert.strictEqual(reg_char.exec('\\$'),'$');
+		it_sr('\\$','$',(s,r)=>{
+			assert.strictEqual(reg_char.exec(s),r);
 		})
-		it('"" -> new FatalError(0,"не могу прочитать reg_char")',()=>{
-			assertDeepEqual(reg_char.exec(''),new FatalError(0,'не могу прочитать reg_char'));
+		it_sf("",()=>new FatalError(0,"не могу прочитать reg_char"),(s,r)=>{
+			assertDeepEqual(reg_char.exec(s),r);
 		})
 	})
 	describe('quotedSequence ::= /'+/`\`` ( [^`\\] | \\\\ | \\`)* `\``/.source+'/ // возвращает строку',()=>{
-		it(/`qwer`/.source + ' -> qwer',()=>{
-			assert.strictEqual(quotedSequence.exec(/`qwer`/.source),'qwer');
+		it_sr(/`qwer`/.source,'qwer',(s,r)=>{
+			assert.strictEqual(quotedSequence.exec(s),r);
 		})
-		it(/`qw\\er`/.source + ' -> qw\\er',()=>{
-			assert.strictEqual(quotedSequence.exec(/`qw\\er`/.source),'qw\\er');
+		it_sr(/`qw\\er`/.source,'qw\\er',(s,r)=>{
+			assert.strictEqual(quotedSequence.exec(s),r);
 		})
-		it(/`qw\`er`/.source + ' -> qw`er',()=>{
-			assert.strictEqual(quotedSequence.exec(/`qw\`er`/.source),'qw`er');
+		it_sr(/`qw\`er`/.source,'qw`er',(s,r)=>{
+			assert.strictEqual(quotedSequence.exec(s),r);
 		})
-		it(/`qw\\\`er`/.source + ' -> qw\\`er',()=>{
-			assert.strictEqual(quotedSequence.exec(/`qw\\\`er`/.source),'qw\\`er');
+		it_sr(/`qw\\\`er`/.source,'qw\\`er',(s,r)=>{
+			assert.strictEqual(quotedSequence.exec(s),r);
 		})
-		it('"" -> new FatalError(0,"не могу прочитать quotedSequence")',()=>{
-			assertDeepEqual(quotedSequence.exec(''),new FatalError(0,'не могу прочитать quotedSequence'));
+		it_sf("",()=>new FatalError(0,"не могу прочитать quotedSequence"),(s,r)=>{
+			assertDeepEqual(quotedSequence.exec(s),r);
 		})
 	})
 	describe('meta parser',()=>{

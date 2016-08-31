@@ -367,6 +367,36 @@ function exc(pattern, except) {
     });
 }
 
+exports.ParseError = ParseError;
+exports.FatalError = FatalError;
+exports.isGood = isGood;
+exports.notFatal = notFatal;
+exports.isFatal = isFatal;
+exports.addErrMessage =  addErrMessage;
+exports.read_all = read_all
+exports.Pattern = Pattern;
+exports.Forward = Forward;
+
+exports.read_txt = read_txt;
+exports.txt = txt;
+exports.read_rgx = read_rgx;
+exports.rgx = rgx;
+exports.read_opt = read_opt;
+exports.opt = opt;
+exports.read_seq = read_seq;
+exports.seq = seq;
+exports.need_all = need_all;
+exports.need_none = need_none;
+exports.need = need;
+exports.read_rep = read_rep;
+exports.rep = rep;
+exports.rep_more = rep_more; // #todo понадобится - доделать
+exports.read_any = read_any;
+exports.any = any;
+exports.collect = collect;
+exports.notCollect = notCollect;
+//exports.exc = exc;
+
 
 /*
 придумать систему сообщений об ошибках
@@ -588,10 +618,16 @@ object.pattern = seq(need_all,txt('{'),
 exports.object = object;
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
-	seq(need(1),txt('`'),
-		rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
-		txt('`<')),
-	seq(need(0),object.then(s=>({type:'postscript',data:'{return '+s+'}'})),txt('<')),
+	seq(need(0,1),
+		any(collect,
+			seq(need(1),txt('`'),
+				rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
+				txt('`')),
+			object.then(s=>({type:'postscript',data:'{return '+s+'}'}))
+		),
+		opt(txt('error')).then(s=>s==='error'),
+		txt('<')
+	).then(([o,e])=>{o.error = e; return o;}),
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s}))   // на будущее
 )).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
@@ -696,6 +732,7 @@ var reg_sequence = seq(need_all,
 	var not = false;
 	var name = null;
 	var back_pattern = null;
+	var error_modifiers = [];
 	while(i>=0) {
 		if(modifiers[i].type==='not') {
 			not = !not;
@@ -715,8 +752,13 @@ var reg_sequence = seq(need_all,
 				back_pattern = modifiers[i].data;
 			else
 				return new ParseError(modifiers[i].pos,'повторно указанный back_pattern');
+			modifiers.splice(i,1);
 		}
-		else if(modifiers[i].type!=='postscript')
+		else if(modifiers[i].type==='postscript') {
+			if(modifiers[i].error)
+				error_modifiers.push(modifiers.splice(i,1)[0]);
+		}
+		else
 			console.assert(false,'неизвестный тип модификатора: '+modifiers[i].type)
 		i--;
 	}
@@ -840,36 +882,6 @@ p_sequence, который вызывает p_alternatives (без кванти�
 p_alternatives, который вызывает p_sequence (через | ), и который создает e_alternatives, который может вызывать результат p_sequence
 p_sequence, который вызывает p_alternatives (с квантификатором), и который создает e_cycle, который может вызывать результат p_alternatives
 */
-
-exports.ParseError = ParseError;
-exports.FatalError = FatalError;
-exports.isGood = isGood;
-exports.notFatal = notFatal;
-exports.isFatal = isFatal;
-exports.addErrMessage =  addErrMessage;
-exports.read_all = read_all
-exports.Pattern = Pattern;
-exports.Forward = Forward;
-
-exports.read_txt = read_txt;
-exports.txt = txt;
-exports.read_rgx = read_rgx;
-exports.rgx = rgx;
-exports.read_opt = read_opt;
-exports.opt = opt;
-exports.read_seq = read_seq;
-exports.seq = seq;
-exports.need_all = need_all;
-exports.need_none = need_none;
-exports.need = need;
-exports.read_rep = read_rep;
-exports.rep = rep;
-exports.rep_more = rep_more; // #todo понадобится - доделать
-exports.read_any = read_any;
-exports.any = any;
-exports.collect = collect;
-exports.notCollect = notCollect;
-//exports.exc = exc;
 
 
 }
