@@ -254,13 +254,13 @@ function read_rep(str, pos, pattern, separated, min, max) {
 	var res = [], x = pos.x, r = pattern(str, pos);
 	var i = 1;
 
-	if(min>0 && !isGood(r)/* && isGoog(res)*/){
+	if(min>0 && !isGood(r)/* && isGood(res)*/){
 		res.err = 1;
 		res.where = x;
 		res.what = r.what;
 	}
 	while (i<min && notFatal(r)) {
-		if(!isGood(r) && isGoog(res)){
+		if(!isGood(r) && isGood(res)){
 			res.err = 1;
 			res.where = x;
 			res.what = r.what;
@@ -594,6 +594,7 @@ modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?"
 namedModifier ::= "modifier | `?`identifier?`=`"
 // возвращает объект {type: строка(not|postscript|backpattern|returnname), data:строка или function(arg,global,stack)}
 // если в тексте функции не встретилось return, оно добавляется перед все строкой
+#todo добавить превращение в строку ?toString:
 */
 function code_to_fun(code) {
 	var fun;
@@ -628,7 +629,8 @@ var modifier = seq(need(1), txt('?'), any(collect,
 		opt(txt('error')).then(s=>s==='error'),
 		txt('<')
 	).then(([o,e])=>{o.error = e; return o;}),
-	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s}))   // на будущее
+	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
+	txt('toString:').then(s=>({type:'toString'}))
 )).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
 	modifier,
@@ -664,14 +666,14 @@ var reg_alternatives = new Forward();
 var code_to_funer = m=>{ if(m.type==='postscript') m.data = code_to_fun(m.data); return m};
 var pos_adder = (m,x)=>{m.pos = x; return m;};
 var reg_sequence = seq(need_all,
-	rep(namedModifier.then(code_to_funer).then(pos_adder)),
-	rep(any(collect,
+	rep(namedModifier.then(code_to_funer).then(pos_adder)), // модификаторы
+	rep(any(collect, // паттерны
 		seq(need_all,
 			reg_symbol,
 			opt(reg_quantificator).then(
 				(r)=>typeof r === 'object' && r.err===0 ? null : r
 			)
-		).then(([symbol,quant])=>({type:'symbol',symbol,quant})),
+		).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
 		seq(need(1,2,4),
 			txt('('),
 			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*'))).then(ms=>{
@@ -690,11 +692,96 @@ var reg_sequence = seq(need_all,
 		reg_link.then((s,x)=>({type:'link',link:s,pos:x}))
 	))
 ).then(([modifiers,patterns])=>{
+	var modifiers_schema = {
+		id:"modifiers_schema",
+		type:'array',
+		items:{
+			type:'object',
+			additionalPropertiesMS:false,
+			properties:{
+				pos:{type:'integer'}
+			},
+			oneOf:[
+				{properties:{
+					type:{ enum:['postscript'] },
+					data:{ type:'Function' },
+					error:{ type:'boolean' }
+				}},
+				{properties:{
+					type:{ enum:['returnname'] },
+					data:{ oneOf:[{format:'identifier' },{enum:['']}]}
+				}},
+				{properties:{
+					type:{ enum:['back_pattern'] },
+					data:{ format:'identifier' }
+				}},
+				{properties:{
+					type:{ enum:['not'] }
+				}},
+				{properties:{
+					type:{ enum:['toString'] }
+				}}
+			]
+		}
+	};
+	var patterns_schema = {
+		id:'patterns_schema',
+		definitions:{
+			id:'quantificator',
+			type:['null','object'],
+			properties:{
+				min:{ type:'integer' },
+				max:{ type:'integer' }
+			},
+			additionalProperties:false,
+		},
+		type:'array',
+		items:{
+			type:'object',
+			additionalPropertiesMS:false,
+			properties:{
+				pos:{ type:'integer' }
+			},
+			oneOf:[
+				{properties:{
+					type:{ enum:['symbol'] },
+					symbol:{ type:['string','RegExp'] },
+					quant:{ $ref:'#quantificator'}
+				}},
+				{properties:{
+					type:{ enum:['pattern'] },
+					mode:{ enum:['cat','obj'] },
+					fun:{ type:'Function' }
+				}},
+				{properties:{
+					type:{ enum:['cycle'] },
+					mode:{ enum:['cat','obj'] },
+					fun:{ type:'Function' },
+					quant:{ $ref:'#quantificator'},
+					cycle_modifiers:{ $ref:'modifiers_schema' }
+				}},
+				{properties:{
+					type:{ enum:['link'] },
+					link:{ type:'string' }
+				}}
+			]
+		}
+	};
+	var return_schema = {
+		type:'object',
+		properties:{
+			mode:{ enum:['cat','obj'] },
+			fun:{ type:'Function' }
+		},
+		additionalProperties:false
+	};
+
 	var mode = 'cat';
 	var compressed_patterns = [];
 	/*
-	создаем массив паттернов, которые будет вызывать e_sequence
-	последовательность символов объединяем в один регексп
+	создаем массив паттернов, которые будет вызывать e_sequence:
+		последовательность символов объединяем в один регексп
+		для cycle создаем функцию и преобразуем в pattern (#todo)
 	*/
 	var cache = [];
 	patterns.forEach(m=>{
@@ -722,23 +809,25 @@ var reg_sequence = seq(need_all,
 	if(cache.length>0)
 		compressed_patterns.push(new RegExp('^'+cache.join('')));
 	cache = [];
+
 	/*
-	обрабатываем модификаторы: четное или нечетное количество not
-	если нечетное - выдаем одну функцию, которая обработчики игнорирует
-	иначе - другую, которая выполняет их справа налево в цикле
-	вначале все обработчики должны быть функциями bkb 
+	обрабатываем модификаторы: 
+		четное или нечетное количество not
+		извлекаем returnname и backpattern, если есть
+		обработчики ошибок переносим в error_modifiers, который надо выполнять сначала к концу
+		а оставшиеся модификаторы с конца к началу
 	*/
 	var i = modifiers.length - 1;
 	var not = false;
 	var name = null;
 	var back_pattern = null;
 	var error_modifiers = [];
-	while(i>=0) {
+	for(var i = modifiers.length-1; i>=0; i--) {
 		if(modifiers[i].type==='not') {
 			not = !not;
 			modifiers.splice(i,1);
 		}
-		else if(modifiers[i].type==='name') {
+		else if(modifiers[i].type==='returnname') {
 			if(name===null)
 				name = modifiers[i].data;
 			else
@@ -760,84 +849,160 @@ var reg_sequence = seq(need_all,
 		}
 		else
 			console.assert(false,'неизвестный тип модификатора: '+modifiers[i].type)
-		i--;
+		// #todo преобразование объекта в строку
 	}
 	if(compressed_patterns.length==1 && compressed_patterns[0].type=='link' && name!=null)
 		mode = 'obj'
 	if(back_pattern) {
 		// #todo
 	}
+
+	/* всего 2 типа функций: конкатенирующие и объектные*/
+
 	function cat_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
-		var i;
+		function set_res(r) {
+			if(name === null || name === '')
+				res.res = r;
+			else 
+				res.res[name] = r;
+		}
 		var inres = [];
-		var X = pos.x
-		for(i=0;i<compressed_patterns.length;i++)
-			if(compressed_patterns[i] instanceof RegExp){
+		var err_mode = false;
+		var X = pos.x; // используется в сообщениях об ошибках и для восстановления после not
+		for(let i=0; i<compressed_patterns.length; i++) {
+			if(compressed_patterns[i] instanceof RegExp) {
 				var m;
-				if (m = compressed_patterns[i].exec(str.slice(pos.x))){
+				if(m = compressed_patterns[i].exec(str.slice(pos.x))) {
 					pos.x += m.index + m[0].length;
-					inres.push(m[0]);
+					if(!err_mode) inres.push(m[0]);
 				}
 				else
 					return new FatalError(pos.x,'не могу прочитать '+compressed_patterns[i].source)
 			}
 			else if(compressed_patterns[i].type==='pattern') {
-				console.assert(compressed_patterns[i].mode==='cat','происходит вызов объектного паттерна из конкатенирующего');
-				var back_res = {};
 				/* если не строка, то stringifyцируем, 
-				   если FatalError - возвращаем FatalError
+				   если FatalError - возвращаем FatalError+обработка ошибок
 					+ если задано name - обернуть в новый FatalError и завершить
 				   если ParseError, 
 					если режим не error, удаляем результаты, кладем туда ошибку, ставим режим error
 					иначе, добавляем ошибку
 				   в режиме error правильные результаты игнорируются
-				   в конце, вызываются обработчики с arg=undefined и errors = массиву ошибок
-					после обработчиков, если задано name или имеется больше одной ошибки - обернуть в новый ParseError
 				*/
+				console.assert(compressed_patterns[i].mode==='cat','происходит вызов объектного паттерна из конкатенирующего');
+				var back_res = {};
+
+				var err = compressed_patterns[i].fun(str,pos,back_res); // ВЫЗВАЛИ!
+
+				if(isFatal(err)) {
+					/*
+					if(not) { // ?! - удачное завершение
+						pos.x = X;
+						set_res('');
+						return { err:'continue' };
+					}
+					*/
+					if(!not)
+					try {
+						for (var j = 0; j < error_modifiers.length; i++) {
+							err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
+						}
+					}
+					catch(err) {} // при исключении обработчики ошибок выполняться перестают
+					if(name!=null || notFatal(err)) // нельзя уменьшать значимость фатальной ошибки
+						return new FatalError(X,'при чтении '+(name?name:''),err)
+					else
+						return err;
+				}
+				else if(!isGood(err)) {
+					// продолжаем даже если not
+					if(!err_mode)
+						inres = []
+					inres.push(err);
+					err_mode = true;
+				}
+				else if(!err_mode) { //  && typeof back_res.res !== 'undefined'
+					if(typeof back_res.res === 'string')
+						inres.push(back_res.res);
+					else
+						inres.push(JSON.stringify(back_res.res));
+				}
 			}
 			else if(compressed_patterns[i].type==='link') {
-				// #todo
+				// #todo поиск функции, а потом вызов как при pattern
 			}
 			else console.assert(false,'неизвестный тип паттерна');
-		var result = inres.join('');
-		if(!not) {
-			//обработчики
-			try{
-				var i = modifiers.length - 1;
-				while(i>=0) {
-					result = modifiers[i].data(result); // #todo global, errors, pos, stack
-					i--;
-				}
-			}catch(err) {
-				return new ParseError(X,err) // #todo stack
-			}
 		}
-		if(name)
-			res.res[name] = result;
-		else
-			res.res = result; // возврат по ссылке
+
+		/*	
+		в конце, вызываются обработчики ошибок с arg=массиву ошибок
+		после обработчиков, если задано name или результат не PareseError и не Fatal Error - обернуть в новый ParseError
+		*/
+		if(err_mode) {
+			/*
+			if(not) { // ?! - удачное завершение
+				pos.x = X;
+				set_res('');
+				return { err:'continue' };
+			}
+			*/
+			var err = inres;
+			if(!not)
+			try {
+				for (var j = 0; j < error_modifiers.length; i++) {
+					err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
+				}
+			}
+			catch(err) {} // при исключении обработчики ошибок выполняться перестают
+			if(name!=null || isGood(err)) // нельзя уменьшать значимость ошибки
+				return new ParseError(X,'при чтении '+(name?name:''),err)
+			else
+				return err;
+		}
+		/*
+		if(not) { // ?! - НЕудачное завершение
+			pos.x = X;
+			set_res('');
+			return { err:'break' };
+		}
+		*/
+		var result = inres.join('');
+		//обработчики
+		if(!not)
+		try{
+			var i = modifiers.length - 1;
+			while(i>=0) {
+				result = modifiers[i].data(result); // #todo global, errors, pos, stack
+				i--;
+			}
+		}catch(err) {
+			return new ParseError(X,err) // #todo stack
+		}
+		set_res(result)
 		return true;
 	}
 	function obj_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
 	}
 	var e_sequence = mode ==='obj' ? obj_sequence : cat_sequence;
 	if(not) {
-		return function not_e_sequence(str,pos,res) {
+		function not_e_sequence(str,pos,res) {
 			var x = pos.x;
 			var r = e_sequence(str,pos,{});
 			pos.x = x;
 			res.res = '';
 			return !isGood(r) ? {err:"continue"} : {err:"break"};
 		}
+		return {fun:not_e_sequence,mode:(mode==='obj'||name ? 'obj' : 'cat')};
 	}
 	else
-		return e_sequence;
+		return {fun:e_sequence,mode:(mode==='obj'||name ? 'obj' : 'cat')};
 },(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e));
 exports.reg_sequence = reg_sequence;
 /*
 alternatives ::= "sequence (`|`sequence)*"
 */
-reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
+reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence))).then(([head,tail])=>{
+	return head;
+})
 /*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
 рег: namedSequence ::= "namedModifier* (symbol quantificator? | \

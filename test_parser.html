@@ -61,49 +61,53 @@
 		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
 	}
 	describe('complex tests for one ',()=>{
-		
+		it('"ab(xxx)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
+			var res = {};
+			assertDeepEqual(reg_sequence.exec('ab(xxx)cd').fun('abxxxcd',{x:0},res),true);
+			assert.strictEqual(res.res,'abxxxcd');
+		})
 	})
 	describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
 		describe('script feature',()=>{
 			it('"?`{throw {readed:arg}}`<abc" -> fun(abc) -> new ParseError(pos,{readed:"abc"})',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc')('abc',{x:0},res),new ParseError(0,{readed:"abc"}));
+				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc').fun('abc',{x:0},res),new ParseError(0,{readed:"abc"}));
 			})
 			it('"?`{return {readed:arg}}`<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}`<abc')('abc',{x:0},res),true);
+				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}`<abc').fun('abc',{x:0},res),true);
 				assertDeepEqual(res.res,{readed:"abc"});
 			})
 			it('"?`arg+arg`?`arg+arg`<abc" -> fun(abc -> abcabcabcabc) -> true',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`arg+arg`<'+'?`arg+arg`<abc')('abc',{x:0},res),true);
+				assertDeepEqual(reg_sequence.exec('?`arg+arg`<'+'?`arg+arg`<abc').fun('abc',{x:0},res),true);
 				assert.strictEqual(res.res,'abcabcabcabc');
 			})
 			it('"?`arg+arg`<abc" -> fun(abc -> abcabc) -> true',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`arg+arg`<abc')('abc',{x:0},res),true);
+				assertDeepEqual(reg_sequence.exec('?`arg+arg`<abc').fun('abc',{x:0},res),true);
 				assert.strictEqual(res.res,'abcabc');
 			})
 			it('"?{readed:arg}<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?{readed:arg}<abc')('abc',{x:0},res),true);
+				assertDeepEqual(reg_sequence.exec('?{readed:arg}<abc').fun('abc',{x:0},res),true);
 				assertDeepEqual(res.res,{readed:"abc"});
 			})
 		})
 		describe('not feature',()=>{
 			it('"?!abc" -> fun(ab->"") -> {err:"continue"}',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?!abc')('ab',{x:0},res),{err:"continue"});
+				assertDeepEqual(reg_sequence.exec('?!abc').fun('ab',{x:0},res),{err:"continue"});
 				assert.strictEqual(res.res,'');
 			})
 			it('"?!abc" -> fun(abc) -> {err:"break"}',()=>{
 				var res = {};
-				assertDeepEqual(reg_sequence.exec('?!abc')('abc',{x:0},res),{err:"break"});
+				assertDeepEqual(reg_sequence.exec('?!abc').fun('abc',{x:0},res),{err:"break"});
 			})
 		})
 		it('"abc" -> fun(abc -> abc) -> true',()=>{
 			var res = {};
-			assertDeepEqual(reg_sequence.exec('abc')('abc',{x:0},res),true);
+			assertDeepEqual(reg_sequence.exec('abc').fun('abc',{x:0},res),true);
 			assert.strictEqual(res.res,'abc');
 		})
 	})
