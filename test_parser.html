@@ -61,6 +61,29 @@
 		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
 	}
 	describe('complex tests for one ',()=>{
+		it('"ab(xxx|yy|z)cd" -> fun(abcd) -> FatalError',()=>{
+			var res = {};
+			assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abcd',{x:0},res),FatalError);
+		})
+		it('"ab(xxx|yy|z)cd" -> fun(abzzcd) -> FatalError',()=>{
+			var res = {};
+			assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzzcd',{x:0},res),FatalError);
+		})
+		it('"ab(xxx|yy|z)cd" -> fun(abzcd -> abzcd) -> true',()=>{
+			var res = {};
+			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzcd',{x:0},res),true);
+			assert.strictEqual(res.res,'abzcd');
+		})
+		it('"ab(xxx|yy|z)cd" -> fun(abyycd -> abyycd) -> true',()=>{
+			var res = {};
+			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abyycd',{x:0},res),true);
+			assert.strictEqual(res.res,'abyycd');
+		})
+		it('"ab(xxx|yy|z)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
+			var res = {};
+			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abxxxcd',{x:0},res),true);
+			assert.strictEqual(res.res,'abxxxcd');
+		})
 		it('"ab(xxx)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
 			var res = {};
 			assertDeepEqual(reg_sequence.exec('ab(xxx)cd').fun('abxxxcd',{x:0},res),true);

@@ -986,12 +986,12 @@ var reg_sequence = seq(need_all,
 	if(not) {
 		function not_e_sequence(str,pos,res) {
 			var x = pos.x;
-			var r = e_sequence(str,pos,{});
+			var r = e_sequence(str,pos,res);
 			pos.x = x;
 			res.res = '';
 			return !isGood(r) ? {err:"continue"} : {err:"break"};
 		}
-		return {fun:not_e_sequence,mode:(mode==='obj'||name ? 'obj' : 'cat')};
+		return {fun:not_e_sequence,mode:'cat',not:true};
 	}
 	else
 		return {fun:e_sequence,mode:(mode==='obj'||name ? 'obj' : 'cat')};
@@ -1001,7 +1001,52 @@ exports.reg_sequence = reg_sequence;
 alternatives ::= "sequence (`|`sequence)*"
 */
 reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence))).then(([head,tail])=>{
-	return head;
+	if(tail.length ===0 && !head.not)
+		return head;
+	tail.unshift(head);
+	var mode = 'cat';
+	for(var i = 0; i<tail.length; i++)
+		if(tail[i].mode==='obj') {
+			mode = obj;
+			break;
+		}
+	function e_alternatives(str,pos,res) {
+		var X = pos.x;
+		var errs = [];
+		for (var i = 0; i < tail.length; i++) {
+			pos.x = X;
+			/*
+			 * передаем объект напрямую в каждую последовательность
+			 * последовательность изменит объект только в случае удачного исхода
+			 * последовательность с отрицанием в любом случае не должна изменить объект
+			 */
+			var err = tail[i].fun(str,pos,res);
+			if(tail[i].not) {
+				if(err.err==='continue')
+					continue;
+				else if(err.err==='break') {
+					if(errs.length===0)
+						return new FatalError(X,'alternatives: был прочитан паттерн №'+i+', который не должен был быть прочитан');
+					else
+						return new FatalError(X,'alternatives: был прочитан паттерн №'+i+', который не должен был быть прочитан, а также до этого произошли ошибки:',errs);
+				}
+				else
+					console.assert(false,'последовательность с отрицанием вернула '+JSON.stringify(err));
+			}
+			if(!isGood(err)) {
+				errs.push(err);
+				continue;
+			}
+			return true;
+		}
+		if(errs.length===0){
+			if(mode==='cat')
+				res.res = '';
+			return true;
+		}
+		return new FatalError(X,'не удалось прочитать ни одну из альтернатив',errs)
+	}
+	return {fun:e_alternatives,mode}
 })
 /*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной
