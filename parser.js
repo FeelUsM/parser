@@ -397,7 +397,7 @@ exports.collect = collect;
 exports.notCollect = notCollect;
 //exports.exc = exc;
 
-
+Error.prototype.toJSON = function(){ return {name:this.name,message:this.message} }
 /*
 придумать систему сообщений об ошибках
 написать преобразователь из регексов и необработанных строк
@@ -691,7 +691,7 @@ var reg_sequence = seq(need_all,
 			{type:'pattern',mode,fun,pos:x}),
 		reg_link.then((s,x)=>({type:'link',link:s,pos:x}))
 	))
-).then(([modifiers,patterns])=>{
+).then(([modifiers,patterns],pattern_x)=>{
 	var modifiers_schema = {
 		id:"modifiers_schema",
 		type:'array',
@@ -771,7 +771,9 @@ var reg_sequence = seq(need_all,
 		type:'object',
 		properties:{
 			mode:{ enum:['cat','obj'] },
-			fun:{ type:'Function' }
+			fun:{ type:'Function' },
+			not:{ type:['boolean','undefined'] },
+			direct:{ type:'boolean' }
 		},
 		additionalProperties:false
 	};
@@ -853,6 +855,14 @@ var reg_sequence = seq(need_all,
 	}
 	if(compressed_patterns.length==1 && compressed_patterns[0].type=='link' && name!=null)
 		mode = 'obj'
+	if(not) {
+		if(modifiers.length>0)
+			return new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать обработчики результата');
+		if(error_modifiers.length>0)
+			return new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать обработчики ошибок');
+		if(name!==null)
+			return new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать имя');
+	}
 	if(back_pattern) {
 		// #todo
 	}
@@ -894,14 +904,6 @@ var reg_sequence = seq(need_all,
 				var err = compressed_patterns[i].fun(str,pos,back_res); // ВЫЗВАЛИ!
 
 				if(isFatal(err)) {
-					/*
-					if(not) { // ?! - удачное завершение
-						pos.x = X;
-						set_res('');
-						return { err:'continue' };
-					}
-					*/
-					if(!not)
 					try {
 						for (var j = 0; j < error_modifiers.length; i++) {
 							err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
@@ -938,36 +940,20 @@ var reg_sequence = seq(need_all,
 		после обработчиков, если задано name или результат не PareseError и не Fatal Error - обернуть в новый ParseError
 		*/
 		if(err_mode) {
-			/*
-			if(not) { // ?! - удачное завершение
-				pos.x = X;
-				set_res('');
-				return { err:'continue' };
-			}
-			*/
 			var err = inres;
-			if(!not)
 			try {
 				for (var j = 0; j < error_modifiers.length; i++) {
 					err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
 				}
 			}
 			catch(err) {} // при исключении обработчики ошибок выполняться перестают
-			if(name!=null || isGood(err)) // нельзя уменьшать значимость ошибки
-				return new ParseError(X,'при чтении '+(name?name:''),err)
+			if(name || isGood(err)) // нельзя уменьшать значимость ошибки
+				return new ParseError(X,'при чтении '+(name?name:'безымянной группы'),err)
 			else
 				return err;
 		}
-		/*
-		if(not) { // ?! - НЕудачное завершение
-			pos.x = X;
-			set_res('');
-			return { err:'break' };
-		}
-		*/
 		var result = inres.join('');
 		//обработчики
-		if(!not)
 		try{
 			var i = modifiers.length - 1;
 			while(i>=0) {
@@ -991,10 +977,20 @@ var reg_sequence = seq(need_all,
 			res.res = '';
 			return !isGood(r) ? {err:"continue"} : {err:"break"};
 		}
-		return {fun:not_e_sequence,mode:'cat',not:true};
+		// not-функция всегда 'cat'
+		return {
+			fun:not_e_sequence,
+			mode:'cat',
+			not:true,
+			direct:name!==null
+		};
 	}
 	else
-		return {fun:e_sequence,mode:(mode==='obj'||name ? 'obj' : 'cat')};
+		return {
+			fun:e_sequence,
+			mode:(mode==='obj'||name ? 'obj' : 'cat'),
+			direct:name!==null
+		};
 },(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e));
 exports.reg_sequence = reg_sequence;
 /*
@@ -1005,11 +1001,15 @@ reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),re
 		return head;
 	tail.unshift(head);
 	var mode = 'cat';
-	for(var i = 0; i<tail.length; i++)
-		if(tail[i].mode==='obj') {
-			mode = obj;
+	var direct = false;
+	for(var i = 0; i<tail.length; i++){
+		if(tail[i].mode==='obj')
+			mode = 'obj';
+		if(tail[i].direct)
+			direct = true;
+		if(mode==='obj' && direct)
 			break;
-		}
+	}
 	function e_alternatives(str,pos,res) {
 		var X = pos.x;
 		var errs = [];
@@ -1046,7 +1046,7 @@ reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),re
 		}
 		return new FatalError(X,'не удалось прочитать ни одну из альтернатив',errs)
 	}
-	return {fun:e_alternatives,mode}
+	return {fun:e_alternatives,mode,direct}
 })
 /*
 // чтобы использовать имена в группе с квантификатором, она должна быть именованной

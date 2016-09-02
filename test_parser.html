@@ -34,7 +34,8 @@
 		}
 		catch(err){
 			//console.log(err)
-			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+'\nreal: '+JSON.stringify(real,'',4);
+			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+
+				'\nreal: '+JSON.stringify(real,'',4)+'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
 			//console.log(err)
 			throw err
 		}
@@ -61,28 +62,64 @@
 		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
 	}
 	describe('complex tests for one ',()=>{
-		it('"ab(xxx|yy|z)cd" -> fun(abcd) -> FatalError',()=>{
-			var res = {};
-			assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abcd',{x:0},res),FatalError);
+		describe('alternatives',()=>{
+			it('"ab(xxx|yy|z)cd" -> fun(abcd) -> FatalError',()=>{
+				var res = {};
+				assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abcd',{x:0},res),FatalError);
+			})
+			it('"ab(xxx|yy|z)cd" -> fun(abzzcd) -> FatalError',()=>{
+				var res = {};
+				assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzzcd',{x:0},res),FatalError);
+			})
+			it('"ab(xxx|yy|z)cd" -> fun(abzcd -> abzcd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzcd',{x:0},res),true);
+				assert.strictEqual(res.res,'abzcd');
+			})
+			it('"ab(xxx|yy|z)cd" -> fun(abyycd -> abyycd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abyycd',{x:0},res),true);
+				assert.strictEqual(res.res,'abyycd');
+			})
+			it('"ab(xxx|yy|z)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abxxxcd',{x:0},res),true);
+				assert.strictEqual(res.res,'abxxxcd');
+			})
 		})
-		it('"ab(xxx|yy|z)cd" -> fun(abzzcd) -> FatalError',()=>{
-			var res = {};
-			assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzzcd',{x:0},res),FatalError);
-		})
-		it('"ab(xxx|yy|z)cd" -> fun(abzcd -> abzcd) -> true',()=>{
-			var res = {};
-			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzcd',{x:0},res),true);
-			assert.strictEqual(res.res,'abzcd');
-		})
-		it('"ab(xxx|yy|z)cd" -> fun(abyycd -> abyycd) -> true',()=>{
-			var res = {};
-			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abyycd',{x:0},res),true);
-			assert.strictEqual(res.res,'abyycd');
-		})
-		it('"ab(xxx|yy|z)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
-			var res = {};
-			assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abxxxcd',{x:0},res),true);
-			assert.strictEqual(res.res,'abxxxcd');
+		describe('stringify',()=>{
+			it('"ab(?`"zzz"`<xxx)cd" -> fun(abxxxcd -> abzzzcd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(?`"zzz"`<xxx)cd').fun('abxxxcd',{x:0},res),true);
+				assert.strictEqual(res.res,'abzzzcd');
+			})
+			it('"ab(?`zzz`<xxx)cd" -> fun(abxxxcd -> abzzzcd) -> Error...ReferenceError',()=>{
+				//zzz
+				var res = {};
+				var err = reg_sequence.exec('ab(?`zzz`<xxx)cd').fun('abxxxcd',{x:0},res);
+				assert.instanceOf(err.res[0].what,ReferenceError);
+				var ign = {
+				    "err": 1,
+				    "what": "при чтении безымянной группы",
+				    "where": 0,
+				    "res": [
+				        {
+				            "err": 1,
+				            "what": {
+				                //"name": "ReferenceError",
+				                //"message": "zzz is not defined"
+				            },
+				            "where": 2
+				        }
+				    ]
+				};
+				//assert.strictEqual(res.res,'abzzzcd');
+			})
+			it('"ab(?{x:3}<xxx)cd" -> fun(abxxxcd -> ab{"x":3}cd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(?{x:3}<xxx)cd').fun('abxxxcd',{x:0},res),true);
+				assert.strictEqual(res.res,'ab{"x":3}cd');
+			})
 		})
 		it('"ab(xxx)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
 			var res = {};
