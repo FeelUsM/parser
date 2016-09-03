@@ -61,7 +61,15 @@
 		tmp.toString = code.toString.bind(code);
 		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
 	}
-	describe('complex tests for one ',()=>{
+	describe('complex tests for one pattern',()=>{
+		describe('cycle',()=>{
+			it('"ab(xx)*cd" -> fun(abxxxcd -> abxxxxcd) -> true',()=>{
+				var res = {};
+				assertDeepEqual(reg_sequence.exec('ab(xx)*cd').fun('abxxxxcd',{x:0},res),true);
+				assert.strictEqual(res.res,'abxxxxcd');
+			})
+
+		})
 		describe('alternatives',()=>{
 			it('"ab(xxx|yy|z)cd" -> fun(abcd) -> FatalError',()=>{
 				var res = {};
