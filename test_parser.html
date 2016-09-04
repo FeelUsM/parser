@@ -28,50 +28,91 @@
 ;(function(){
 	'use strict';
 	copyProps(require('parser'),window);
+
+	RegExp.prototype.toJSON = function(){ return '/'+this.source+'/' }
+
 	function assertDeepEqual(real,expected) {
 		try{
 			assert.deepEqual(expected,real);
 		}
 		catch(err){
-			//console.log(err)
 			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+
-				'\nreal: '+JSON.stringify(real,'',4)+'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
-			//console.log(err)
+				'\nreal: '+JSON.stringify(real,'',4)+
+				'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
 			throw err
 		}
-		/*
-		var diff = DeepDiff(expected,real);
-		if(diff.length!==0) {
-			//console.log(diff);
-		}*/
 	}
-	function it_sf(str,fun,code) {
-		function tmp() {
-			code(str,fun());
-		}
-		tmp.toString = code.toString.bind(code);
-		var fs = fun.toString();
-		fs = /^\(\)=>/.test(fs) ? fs.slice(4) : fs;
-		it('"'+str+'" ---> '+fs,tmp);
+	if(typeof global === 'undefined') {
+		var global = window;
 	}
-	function it_sr(str,res,code) {
-		function tmp() {
-			code(str,res);
-		}
-		tmp.toString = code.toString.bind(code);
-		it('"'+str+'" ---> '+JSON.stringify(res),tmp);
-	}
-	describe('complex tests for one pattern',()=>{
-		describe('cycle',()=>{
-			it('"ab(xx)*cd" -> fun(abxxxcd -> abxxxxcd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(xx)*cd').fun('abxxxxcd',{x:0},res),true);
-				assert.strictEqual(res.res,'abxxxxcd');
-			})
 
+	function it_compile(pattern,obj,code) {
+		function tmp() {
+			code(pattern,obj);
+		}
+		tmp.toString = code.toString.bind(code);
+		it('"'+pattern+'" ---> '+JSON.stringify(obj),tmp);
+	}
+	function it_err_compile(pattern,efun,code) { // error func
+		function tmp() {
+			code(pattern,efun());
+		}
+		tmp.toString = code.toString.bind(code);
+		var efs = efun.toString(); // error func string
+		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
+		it('"'+pattern+'" ---> '+efs,tmp);
+	}
+	function it_parse(pattern,str,res,code) {
+		function tmp() {
+			code(pattern,str,res);
+		}
+		tmp.toString = code.toString.bind(code);
+		it('"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
+	}
+	function it_err_parse(pattern,str,efun,code) {
+		function tmp() {
+			code(pattern,str,efun());
+		}
+		tmp.toString = code.toString.bind(code);
+		var efs = efun.toString();
+		efs = /^\(\)=>/.test(fs) ? efs.slice(4) : efs;
+		it('"'+pattern+'" ---> fun('+efs+') -> '+efs,tmp);
+	}
+	function compile(fun) {
+		function do_compile(pattern,obj) {
+			assertDeepEqual(global[fun].exec(pattern),obj);
+		}
+		do_compile.toString = ()=>'assertDeepEqual('+fun+'.exec(pattern),obj);'
+		return do_compile;
+	}
+	function parse(fun) {
+		function do_parse(pattern,str,res) {
+			var inres = {res:{}};
+			var funobj = reg_sequence.exec(pattern);
+			if(!funobj.fun)
+				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
+			assertDeepEqual(funobj.fun(str,{x:0},inres),true);
+			assertDeepEqual(inres.res,res);
+		}
+		do_parse.toString = ()=>'var inres = {res:{}};\n'+
+			'assertDeepEqual('+fun+'.exec(pattern).fun(str,{x:0},inres),true);\n'+
+			'assertDeepEqual(inres.res,res);'
+		return do_parse;
+	}
+
+	describe('complex tests for one pattern',()=>{
+		describe('objects',()=>{
+			it_parse('a(?=bc)d','abcd',{y:'bc'},parse('reg_sequence'))
+			it_parse('a(?y=bc)d','abcd',{y:"bc"},parse('reg_sequence'));
+			it_parse('?x=a(?y=bc)d','abcd',{x:{y:"bc"}},parse('reg_sequence'))
+			it_parse('?x=abcd','abcd',{x:"abcd"},parse('reg_sequence'))
+			it_parse('?=abcd','abcd','abcd',parse('reg_sequence'))
+		})
+		describe('cycle',()=>{
+			it_parse('ab(xx)*cd','abxxxxcd','abxxxxcd',parse('reg_sequence'))
 		})
 		describe('alternatives',()=>{
-			it('"ab(xxx|yy|z)cd" -> fun(abcd) -> FatalError',()=>{
+			it('ab(xxx|yy|z)cd -> fun(abcd) -> FatalError',()=>{
 				var res = {};
 				assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abcd',{x:0},res),FatalError);
 			})
@@ -79,28 +120,12 @@
 				var res = {};
 				assert.instanceOf(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzzcd',{x:0},res),FatalError);
 			})
-			it('"ab(xxx|yy|z)cd" -> fun(abzcd -> abzcd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abzcd',{x:0},res),true);
-				assert.strictEqual(res.res,'abzcd');
-			})
-			it('"ab(xxx|yy|z)cd" -> fun(abyycd -> abyycd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abyycd',{x:0},res),true);
-				assert.strictEqual(res.res,'abyycd');
-			})
-			it('"ab(xxx|yy|z)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(xxx|yy|z)cd').fun('abxxxcd',{x:0},res),true);
-				assert.strictEqual(res.res,'abxxxcd');
-			})
+			it_parse('ab(xxx|yy|z)cd','abzcd','abzcd',parse('reg_sequence'))
+			it_parse('ab(xxx|yy|z)cd','abyycd','abyycd',parse('reg_sequence'))
+			it_parse('ab(xxx|yy|z)cd','abxxxcd','abxxxcd',parse('reg_sequence'))
 		})
 		describe('stringify',()=>{
-			it('"ab(?`"zzz"`<xxx)cd" -> fun(abxxxcd -> abzzzcd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(?`"zzz"`<xxx)cd').fun('abxxxcd',{x:0},res),true);
-				assert.strictEqual(res.res,'abzzzcd');
-			})
+			it_parse('ab(?`"zzz"`<xxx)cd','abxxxcd','abzzzcd',parse('reg_sequence'))
 			it('"ab(?`zzz`<xxx)cd" -> fun(abxxxcd -> abzzzcd) -> Error...ReferenceError',()=>{
 				//zzz
 				var res = {};
@@ -123,17 +148,9 @@
 				};
 				//assert.strictEqual(res.res,'abzzzcd');
 			})
-			it('"ab(?{x:3}<xxx)cd" -> fun(abxxxcd -> ab{"x":3}cd) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('ab(?{x:3}<xxx)cd').fun('abxxxcd',{x:0},res),true);
-				assert.strictEqual(res.res,'ab{"x":3}cd');
-			})
+			it_parse("ab(?{x:3}<xxx)cd",'abxxxcd','ab{"x":3}cd',parse('reg_sequence'))
 		})
-		it('"ab(xxx)cd" -> fun(abxxxcd -> abxxxcd) -> true',()=>{
-			var res = {};
-			assertDeepEqual(reg_sequence.exec('ab(xxx)cd').fun('abxxxcd',{x:0},res),true);
-			assert.strictEqual(res.res,'abxxxcd');
-		})
+		it_parse("ab(xxx)cd",'abxxxcd','abxxxcd',parse('reg_sequence'))
 	})
 	describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
 		describe('script feature',()=>{
@@ -141,26 +158,21 @@
 				var res = {};
 				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc').fun('abc',{x:0},res),new ParseError(0,{readed:"abc"}));
 			})
-			it('"?`{return {readed:arg}}`<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`{return {readed:arg}}`<abc').fun('abc',{x:0},res),true);
-				assertDeepEqual(res.res,{readed:"abc"});
-			})
-			it('"?`arg+arg`?`arg+arg`<abc" -> fun(abc -> abcabcabcabc) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`arg+arg`<'+'?`arg+arg`<abc').fun('abc',{x:0},res),true);
-				assert.strictEqual(res.res,'abcabcabcabc');
-			})
-			it('"?`arg+arg`<abc" -> fun(abc -> abcabc) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('?`arg+arg`<abc').fun('abc',{x:0},res),true);
-				assert.strictEqual(res.res,'abcabc');
-			})
-			it('"?{readed:arg}<abc" -> fun(abc -> {readed:"abc"}) -> true',()=>{
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('?{readed:arg}<abc').fun('abc',{x:0},res),true);
-				assertDeepEqual(res.res,{readed:"abc"});
-			})
+			it_parse('?`{return {readed:arg}}`<abc','abc',{readed:"abc"},parse('reg_sequence'))
+			it_parse("?`arg+arg`<?`arg+arg`abc",'abc','abcabcabcabc',//parse('reg_sequence'))
+		function do_parse(pattern,str,res) {
+			var inres = {res:{}};
+			console.log('НАЧАЛО')
+			var funobj = reg_sequence.exec(pattern);
+			console.log('КОНЕЦ')
+			if(!funobj.fun)
+				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
+			assertDeepEqual(funobj.fun(str,{x:0},inres),true);
+			assertDeepEqual(inres.res,res);
+		})
+
+			it_parse("?`arg+arg`<abc",'abc','abcabc',parse('reg_sequence'))
+			it_parse("?{readed:arg}<abc",'abc',{readed:"abc"},parse('reg_sequence'))
 		})
 		describe('not feature',()=>{
 			it('"?!abc" -> fun(ab->"") -> {err:"continue"}',()=>{
@@ -173,214 +185,121 @@
 				assertDeepEqual(reg_sequence.exec('?!abc').fun('abc',{x:0},res),{err:"break"});
 			})
 		})
-		it('"abc" -> fun(abc -> abc) -> true',()=>{
-			var res = {};
-			assertDeepEqual(reg_sequence.exec('abc').fun('abc',{x:0},res),true);
-			assert.strictEqual(res.res,'abc');
-		})
+		it_parse("abc",'abc','abc',parse('reg_sequence'));
 	})
 	describe('modifier ::= "`?` ( `!` | ( \\` ([^\\`])* \\` | `\\`{` ([^\\`])* `}\\`` | object )`<` | identifier`->`)" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
 		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
-			it_sr('?identifier->',{type:"back_pattern",data:"identifier"},(s,r)=>{
-				assertDeepEqual(namedModifier.exec(s),r);
-			})
+			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile('namedModifier'))
 		})
 		describe('negate feature',()=>{
-			it_sr('?!',{type:"not"},(s,r)=>{
-				assertDeepEqual(namedModifier.exec(s),r);
-			})
+			it_compile('?!',{type:"not"},compile('namedModifier'))
 		})
 		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
-			it_sr('?`"hello world"`error<',{type:"postscript",data:'"hello world"',error:true},(s,r)=>{
-				assertDeepEqual(namedModifier.exec(s),r)
-			})
-			it_sr('?`"hello world"`<',{type:"postscript",data:'"hello world"',error:false},(s,r)=>{
-				assertDeepEqual(namedModifier.exec(s),r)
-			})
-			it_sr('?`{return "hello world"}`<',{type:"postscript",data:'{return "hello world"}',error:false},(s,r)=>{
-				assertDeepEqual(namedModifier.exec(s),r)
-			})
+			it_compile('?`"hello world"`error<',
+				{type:"postscript",data:'"hello world"',error:true},
+				compile('namedModifier'))
+			it_compile('?`"hello world"`<',
+				{type:"postscript",data:'"hello world"',error:false},
+				compile('namedModifier'))
+			it_compile('?`{return "hello world"}`<',
+				{type:"postscript",data:'{return "hello world"}',error:false},
+				compile('namedModifier'))
 			describe('complicated object',()=>{
-				it_sr('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
+				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
 					{	type:"postscript",
 						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
 						error:false
 					},
-					(s,r)=>{
-					assertDeepEqual(namedModifier.exec(s),r)
-				})
-				it_sr('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
+					compile('namedModifier')
+				)
+				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
 					{	type:"postscript",
 						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
 						error:true
 					},
-					(s,r)=>{
-						assertDeepEqual(namedModifier.exec(s),r)
+					compile('namedModifier')
+				)
+				describe('object, возвращает ввиде неразобранной строки',()=>{
+					it_compile(
+						'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',
+						'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',compile('object'))
 				})
-				it('object: {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}} -> "{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}"',()=>{
-					assertDeepEqual(object.exec('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}'),'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}')
-				})
-				it('string: "{{{}{}}}}}}{}{}}{" -> "{{{}{}}}}}}{}{}}{"',()=>{
-					assert.strictEqual(string.exec('"{{{}{}}}}}}{}{}}{"'),'"{{{}{}}}}}}{}{}}{"')
+				describe('string, возвращает вместе с кавычками',()=>{
+					it_compile('"{{{}{}}}}}}{}{}}{"','"{{{}{}}}}}}{}{}}{"',compile('string'))
 				})
 			})
 		})
 		describe('return name feture',()=>{
-			it('?identifier= -> {type:"returnname",data:"identifier"}',()=>{
-				assertDeepEqual(namedModifier.exec('?identifier='),{type:"returnname",data:'identifier'});
-			})
+			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile('namedModifier'))
 		})
 	})
 	describe('bnf_quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`" // пока только энергичные',()=>{
-		it('{ 3 , 5 } -> {min:3,max:5}',()=>{
-			assertDeepEqual(bnf_quantificator.exec('{ 3 , 5 }'),{min:3,max:5})
-		})
+		it_compile('{ 3 , 5 }',{min:3,max:5},compile('bnf_quantificator'))
 	})
 	describe('reg_quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные',()=>{
-		it('+ -> {min:1,max:Infinity}',()=>{
-			assertDeepEqual(reg_quantificator.exec('+'),{min:1,max:Infinity})
-		})
-		it('{3,5} -> {min:3,max:5}',()=>{
-			assertDeepEqual(reg_quantificator.exec('{3,5}'),{min:3,max:5})
-		})
-		it('{3} -> {min:3,max:3}',()=>{
-			assertDeepEqual(reg_quantificator.exec('{3}'),{min:3,max:3})
-		})
-		it('{3,} -> {min:3,max:Infinity}',()=>{
-			assertDeepEqual(reg_quantificator.exec('{3,}'),{min:3,max:Infinity})
-		})
-		it('{,3} -> {min:0,max:3}',()=>{
-			assertDeepEqual(reg_quantificator.exec('{,3}'),{min:0,max:3})
-		})
+		it_compile('+',{min:1,max:Infinity},compile('reg_quantificator'))
+		it_compile('{3,5}',{min:3,max:5},compile('reg_quantificator'))
+		it_compile('{3}',{min:3,max:3},compile('reg_quantificator'))
+		it_compile('{3,}',{min:3,max:Infinity},compile('reg_quantificator'))
+		it_compile('{,3}',{min:0,max:3},compile('reg_quantificator'))
 	})
 	describe('bnf_class ::= `[``^`?spc* (classChar(`-`classChar)?spc* |quotedSequence spc* )*`]`|`.` // возвращает регексп (без галки вначале)',()=>{
-		it('[ \\a \\b \\c ] -> /[abc]/',()=>{
-			2+2;
-			assert.strictEqual(bnf_class.exec('[ \\a \\b \\c ]').source , /[abc]/.source)
-		})
+		it_compile('[ \\a \\b \\c ]',/[abc]/,compile('bnf_class'))
 	});
 	describe('reg_class ::= `[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.` // возвращает регексп (без галки вначале)',()=>{
-		it('. -> /./',()=>{
-			assert.strictEqual(reg_class.exec('.').source , /./.source)
-		})
-		it('[] -> /[]/',()=>{
-			assert.strictEqual(reg_class.exec('[]').source , /[]/.source)
-		})
-		it('[^] -> /[^]/',()=>{
-			assert.strictEqual(reg_class.exec('[^]').source , /[^]/.source)
-		})
-		it('[`abc`] -> /[abc]/',()=>{
-			assert.strictEqual(reg_class.exec('[`abc`]').source , /[abc]/.source)
-		})
-		it('[`a^$`] -> /[a\\^\\$]/',()=>{
-			assert.strictEqual(reg_class.exec('[`a^$`]').source , /[a\^\$]/.source)
-		})
-		it('[abc] -> /[abc]/',()=>{
-			assert.strictEqual(reg_class.exec('[abc]').source , /[abc]/.source)
-		})
-		it('[a-z] -> /[a-z]/',()=>{
-			assert.strictEqual(reg_class.exec('[a-z]').source , /[a-z]/.source)
-		})
-		it('[\\$-\\^] -> /[\\$-\\^]/',()=>{
-			assert.strictEqual(reg_class.exec('[\\$-\\^]').source , /[\$-\^]/.source)
-		})
-		it('[a-] -> error',()=>{
-			assert.isTrue(isFatal(reg_class.exec('[a-]')))
-		})
-		it('[a\\-] -> /[a\\-]/',()=>{
-			assert.strictEqual(reg_class.exec('[a\\-]').source , /[a\-]/.source)
-		})
+		it_compile('.',/./,compile('reg_class'))
+		it_compile('.',/./,compile('reg_class'))
+		it_compile('[]',/[]/,compile('reg_class'))
+		it_compile('[^]',/[^]/,compile('reg_class'))
+		it_compile('[`abc`]',/[abc]/,compile('reg_class'))
+		it_compile('[`a^$`]',/[a\^\$]/,compile('reg_class'))
+		it_compile('[abc]',/[abc]/,compile('reg_class'))
+		it_compile('[a-z]',/[a-z]/,compile('reg_class'))
+		it_compile('[\\$-\\^]',/[\$-\^]/,compile('reg_class'))
+		it_err_compile('[a-]',()=>new FatalError(0,"не могу прочитать reg_class",
+			new FatalError(0,'не удалось прочитать ни одну из альтернатив',[
+				new FatalError(0,'не могу прочитать .'),
+				new FatalError(2,'не могу прочитать ]')
+			])),compile('reg_class'))
+		it_compile('[a\\-]',/[a\-]/,compile('reg_class'))
 	})
 	describe('bnf_classChar ::= /'+/[^ \\\/` ` ^-|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it('1 -> 1',()=>{
-			assert.strictEqual(bnf_classChar.exec('1'),'1');
-		})
-		it('" " -> error',()=>{
-			assert.instanceOf(bnf_classChar.exec(' '),FatalError);
-		})
-		it('^ -> error',()=>{
-			assert.instanceOf(bnf_classChar.exec('^'),FatalError);
-		})
-		it('- -> error',()=>{
-			assert.instanceOf(bnf_classChar.exec('-'),FatalError);
-		})
-		it('\\^ -> ^',()=>{
-			assert.strictEqual(bnf_classChar.exec('\\^'),'^');
-		})
-		it('\\- -> -',()=>{
-			assert.strictEqual(bnf_classChar.exec('\\-'),'-');
-		})
-		it('"" -> new FatalError(0,"не могу прочитать bnf_classChar")',()=>{
-			assertDeepEqual(bnf_classChar.exec(''),new FatalError(0,'не могу прочитать bnf_classChar'));
-		})
+		it_compile('1','1',compile('bnf_classChar'))
+		it_err_compile(' ',()=>new FatalError(0,"не могу прочитать bnf_classChar"),compile('bnf_classChar'))
+		it_err_compile('^',()=>new FatalError(0,"не могу прочитать bnf_classChar"),compile('bnf_classChar'))
+		it_err_compile('-',()=>new FatalError(0,"не могу прочитать bnf_classChar"),compile('bnf_classChar'))
+		it_compile('\\^','^',compile('bnf_classChar'))
+		it_compile('\\-','-',compile('bnf_classChar'))
+		it_err_compile('',()=>new FatalError(0,"не могу прочитать bnf_classChar"),compile('bnf_classChar'))
 	})
 	describe('reg_classChar ::= /'+/[^ \\\/` `^-|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it('1 -> 1',()=>{
-			assert.strictEqual(reg_classChar.exec('1'),'1');
-		})
-		it('" " -> " "',()=>{
-			assert.strictEqual(reg_classChar.exec(' '),' ');
-		})
-		it('^ -> error',()=>{
-			assert.instanceOf(reg_classChar.exec('^'),FatalError);
-		})
-		it('- -> error',()=>{
-			assert.instanceOf(reg_classChar.exec('-'),FatalError);
-		})
-		it('\\^ -> ^',()=>{
-			assert.strictEqual(reg_classChar.exec('\\^'),'^');
-		})
-		it('\\- -> -',()=>{
-			assert.strictEqual(reg_classChar.exec('\\-'),'-');
-		})
-		it('"" -> new FatalError(0,"не могу прочитать reg_classChar")',()=>{
-			assertDeepEqual(reg_classChar.exec(''),new FatalError(0,'не могу прочитать reg_classChar'));
-		})
+		it_compile('1','1',compile('reg_classChar'))
+		it_compile(' ',' ',compile('reg_classChar'))
+		it_err_compile('^',()=>new FatalError(0,"не могу прочитать reg_classChar"),compile('reg_classChar'))
+		it_err_compile('-',()=>new FatalError(0,"не могу прочитать reg_classChar"),compile('reg_classChar'))
+		it_compile('\\^','^',compile('reg_classChar'))
+		it_compile('\\-','-',compile('reg_classChar'))
+		it_err_compile('',()=>new FatalError(0,"не могу прочитать reg_classChar"),compile('reg_classChar'))
 	})
 	describe('bnf_char ::= /'+/\\./.source+'/ // возвращает символ',()=>{
-		it('\\1 -> 1',()=>{
-			assert.strictEqual(bnf_char.exec('\\1'),'1');
-		})
-		it('1 -> error',()=>{
-			assert.instanceOf(bnf_char.exec('1'),FatalError);
-		})
-		it('$ -> error',()=>{
-			assert.instanceOf(bnf_char.exec('$'),FatalError);
-		})
-		it('"" -> new FatalError(0,"не могу прочитать bnf_char")',()=>{
-			assertDeepEqual(bnf_char.exec(''),new FatalError(0,'не могу прочитать bnf_char'));
-		})
+		it_compile('\\1','1',compile('bnf_char'))
+		it_err_compile('1'	,()=>new FatalError(0,"не могу прочитать bnf_char"),compile('bnf_char'))
+		it_err_compile('$'	,()=>new FatalError(0,"не могу прочитать bnf_char"),compile('bnf_char'))
+		it_err_compile(''	,()=>new FatalError(0,"не могу прочитать bnf_char"),compile('bnf_char'))
 	})
 	describe('reg_char ::= /'+/[^ \\\/` `|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it_sr('1','1',(s,r)=>{
-			assert.strictEqual(reg_char.exec(s),r);
-		})
-		it('$ -> error',()=>{
-			assert.instanceOf(reg_char.exec('$'),FatalError);
-		})
-		it_sr('\\$','$',(s,r)=>{
-			assert.strictEqual(reg_char.exec(s),r);
-		})
-		it_sf("",()=>new FatalError(0,"не могу прочитать reg_char"),(s,r)=>{
-			assertDeepEqual(reg_char.exec(s),r);
-		})
+		it_compile(		'1'		,'1'												,compile('reg_char'))
+		it_err_compile(	'$'		,()=>new FatalError(0,'не могу прочитать reg_char')	,compile('reg_char'))
+		it_compile(		'\\$'	,'$'												,compile('reg_char'))
+		it_err_compile(	""		,()=>new FatalError(0,"не могу прочитать reg_char")	,compile('reg_char'))
 	})
 	describe('quotedSequence ::= /'+/`\`` ( [^`\\] | \\\\ | \\`)* `\``/.source+'/ // возвращает строку',()=>{
-		it_sr(/`qwer`/.source,'qwer',(s,r)=>{
-			assert.strictEqual(quotedSequence.exec(s),r);
-		})
-		it_sr(/`qw\\er`/.source,'qw\\er',(s,r)=>{
-			assert.strictEqual(quotedSequence.exec(s),r);
-		})
-		it_sr(/`qw\`er`/.source,'qw`er',(s,r)=>{
-			assert.strictEqual(quotedSequence.exec(s),r);
-		})
-		it_sr(/`qw\\\`er`/.source,'qw\\`er',(s,r)=>{
-			assert.strictEqual(quotedSequence.exec(s),r);
-		})
-		it_sf("",()=>new FatalError(0,"не могу прочитать quotedSequence"),(s,r)=>{
-			assertDeepEqual(quotedSequence.exec(s),r);
-		})
+		it_compile(		/`qwer`/.source		,'qwer'		,compile('quotedSequence'))
+		it_compile(		/`qw\\er`/.source	,'qw\\er'	,compile('quotedSequence'))
+		it_compile(		/`qw\`er`/.source	,'qw`er'	,compile('quotedSequence'))
+		it_compile(		/`qw\\\`er`/.source	,'qw\\`er'	,compile('quotedSequence'))
+		it_err_compile(	""					,()=>new FatalError(0,"не могу прочитать quotedSequence"), 
+			compile('quotedSequence'))
 	})
 	describe('meta parser',()=>{
 		describe('isGood',function(){

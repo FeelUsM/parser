@@ -121,7 +121,7 @@ function read_txt(str, pos, text) {
 	return new FatalError(pos.x,'не могу прочитать '+text);
 }
 function txt(text) {
-    return new Pattern((str,pos)=>read_txt(str,pos,text));
+	return new Pattern((str,pos)=>read_txt(str,pos,text));
 }
 
 // если regexp читается (не забываем в начале ставить ^)
@@ -142,23 +142,23 @@ function rgx(regexp) {
 		//console.warn('добавляю ^ в начало рег.выр-я '+regexp.source);
 		regexp = new RegExp('^'+regexp.source);
 	}
-    return new Pattern((str,pos)=>read_rgx(str,pos,regexp));
+	return new Pattern((str,pos)=>read_rgx(str,pos,regexp));
 }
 
 // ошибку или ничего преобразует в неошибку
 // позицию восстанавливает, если ошибка
-function read_opt(str, pos, pattern) {
+function read_opt(str, pos, pattern, def={err:0}/*не ошибка*/) {
 	var x = pos.x;
 	var r = pattern(str, pos)
 	if(!isGood(r))	{
 		tail_error = r;
 		pos.x=x;
-		return {err:0};	//не ошибка
+		return def;
 	}
 	return r;
 }
-function opt(pattern) {
-    return new Pattern((str,pos)=>read_opt(str,pos,pattern.exec));
+function opt(pattern,def={err:0}) {
+	return new Pattern((str,pos)=>read_opt(str,pos,pattern.exec,def));
 }
 
 // читает последовательность, в случае неудачи позицию НЕ восстанавливает
@@ -175,7 +175,7 @@ function read_seq(str, pos, isFatal, patterns) {
 	return res.a;
 }
 function seq(isFatal/*(res//.a//,r//.res//,i,pos)*/, ...patterns) {
-    return new Pattern((str,pos)=>read_seq(str,pos,isFatal,patterns.map(pattern=>pattern.exec)));
+	return new Pattern((str,pos)=>read_seq(str,pos,isFatal,patterns.map(pattern=>pattern.exec)));
 }
 
 // какие результаты из последовательности паттернов включать в ответ
@@ -289,6 +289,7 @@ function read_rep(str, pos, pattern, separated, min, max) {
 		res.push(r);
 	else {
 		tail_error = r;
+		console.log('tail_error: ',r)
 		pos.x = x;
 	}
 	return res;
@@ -300,38 +301,37 @@ function rep(pattern, options, separator, then) {
 	var min = options && options.min || 0;
 	var max = options && options.max || +Infinity;
 	console.assert(0<=min && min<=max && 1<=max);
-    var separated = !separator ? pattern :
+	var separated = !separator ? pattern :
 		then ? seq(need_all, separator, pattern).then(then) :
-        seq(need(1), separator, pattern);
+		seq(need(1), separator, pattern);
 
-    return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
+	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
 }
 
 // #todo понадобится - доделать
 // то же что и rep, только допускает возможность ParseError
 // в этом случае устанавливает .err = 1
 function rep_more(pattern, separator) {
-    var separated = !separator ? pattern :
-        seq(need(1), separator, pattern);
+	var separated = !separator ? pattern :
+		seq(need(1), separator, pattern);
 
-    return new Pattern(function rep_more_pattern(str, pos/*.x*/) {
-        var res = [], x = pos.x, r = pattern.exec(str, pos);
-        while (notFatal(r)) {
-            res.push(r);
+	return new Pattern(function rep_more_pattern(str, pos/*.x*/) {
+		var res = [], x = pos.x, r = pattern.exec(str, pos);
+		while (notFatal(r)) {
+			res.push(r);
 			if(r.err) res.err = 1;
-            x = pos.x;
-            r = separated.exec(str, pos);
-        }
+			x = pos.x;
+			r = separated.exec(str, pos);
+		}
 		pos.x = x;
-        return res;
-    });
+		return res;
+	});
 }
 
 // перебирает паттерны с одной и той же позиции до достижения удачного результата
 // от isGood зависит, будут ли собираться ошибки
 function read_any(str, pos/*.x*/, isGood, patterns) {
-	var errs = {a:{	err:2,//default fatal
-					what:[]}},
+	var errs = {a:new FatalError(pos.x,'не удалось прочитать ни одну из альтернатив',[])},
 		x = pos.x;
 	for (var r, i = 0; i < patterns.length; i++){
 		pos.x = x; // что бы у isGood была возможность выставить pos перед выходом из цикла
@@ -342,7 +342,7 @@ function read_any(str, pos/*.x*/, isGood, patterns) {
 	return errs.a;
 }
 function any(isGood, ...patterns) {
-    return new Pattern((str,pos)=>read_any(str,pos,isGood,patterns.map(pattern=>pattern.exec)));
+	return new Pattern((str,pos)=>read_any(str,pos,isGood,patterns.map(pattern=>pattern.exec)));
 }
 //сначала надо указывать попытки удачного прочтения,
 //а только потом попытки восстановления после ошибок
@@ -351,7 +351,7 @@ function any(isGood, ...patterns) {
 function collect(errs/*.a*/,r,i,pos/*.x*/){ // isGood
 	if(isGood(r))  return true;
 	if(!r)         return false;
-	errs.a.what.push(r)//collect
+	errs.a.by.push(r)//collect
 	return false;
 }
 
@@ -362,9 +362,9 @@ function notCollect(errs/*.a*/,r,i,pos/*.x*/){//isGood
 
 // #todo как понадобится - доделать
 function exc(pattern, except) {
-    return new Pattern(function exc_pattern(str, pos/*.x*/) {
-        return !isGood(except.exec(str, pos)) && pattern.exec(str, pos);
-    });
+	return new Pattern(function exc_pattern(str, pos/*.x*/) {
+		return !isGood(except.exec(str, pos)) && pattern.exec(str, pos);
+	});
 }
 
 exports.ParseError = ParseError;
@@ -484,14 +484,13 @@ var merger = (arr)=>{
 	return r;
 }
 var star = {min:0,max:Infinity};
-var voider = (r)=>typeof r === 'object' && r.err===0 ? '' : r; 
 var reg_class = any(collect,
 	txt('.'),
 	seq(need_all, 
-		txt('['), opt(txt('^')).then(voider), 
+		txt('['), opt(txt('^'),''),
 		rep(any(collect, 
 			seq(need_all, 
-				reg_classChar.then(escaper), opt(seq(need_all, txt('-'), reg_classChar.then(escaper)).then(merger)).then(voider)
+				reg_classChar.then(escaper), opt(seq(need_all, txt('-'), reg_classChar.then(escaper)).then(merger),'')
 			).then(merger),
 			quotedSequence.then(escaper)
 		),star).then(merger), 
@@ -506,11 +505,11 @@ var spcs = rep(spc,star).then(r=>'');
 var bnf_class = any(collect,
 	txt('.'),
 	seq(need_all, 
-		txt('['), opt(txt('^')).then(voider), spcs, 
+		txt('['), opt(txt('^'),''), spcs, 
 		rep(any(collect, 
 			seq(need_all, 
 				bnf_classChar.then(escaper), 
-				opt(seq(need_all, txt('-'), bnf_classChar.then(escaper)).then(merger)).then(voider),
+				opt(seq(need_all, txt('-'), bnf_classChar.then(escaper)).then(merger),''),
 				spcs
 			).then(merger),
 			seq(need(0), quotedSequence.then(escaper), spcs)
@@ -558,9 +557,10 @@ var reg_quantificator = any(collect,
 			seq(need(1),txt(','),num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
-				opt(seq(need(1),txt(','),
-					opt(num).then(n=>typeof n === 'number' ? n : Infinity))
-				)
+				opt(seq(need(1),
+					txt(','),
+					opt(num,Infinity)
+				))
 			).then(arr=>({
 				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
 			}))
@@ -577,9 +577,10 @@ var bnf_quantificator = any(collect,
 			seq(need(2),txt(','),spcs,num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
-				opt(seq(need(3),spcs,txt(','),spcs,
-					opt(num).then(n=>typeof n === 'number' ? n : Infinity))
-				)
+				opt(seq(need(3),
+					spcs,txt(','),
+					spcs,opt(num,Infinity)
+				))
 			).then(arr=>({
 				min:arr[0],max:typeof arr[1] === 'number' ? arr[1] : arr[0]
 			}))
@@ -635,7 +636,7 @@ var modifier = seq(need(1), txt('?'), any(collect,
 )).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
 var namedModifier = any(collect,
 	modifier,
-	seq(need(1),txt('?'), opt(identifier).then(voider).then(s=>({type:'returnname',data:s})), txt('='))//,
+	seq(need(1),txt('?'), opt(identifier,'').then(s=>({type:'returnname',data:s})), txt('='))//,
 	//txt('*').then(()=>({type:'delimiter'}))
 ).then(0,(x,e)=>new FatalError(x,'не могу прочитать namedModifier',e));
 exports.namedModifier = namedModifier;
@@ -671,21 +672,17 @@ var reg_sequence = seq(need_all,
 	rep(any(collect, // паттерны
 		seq(need_all,
 			reg_symbol,
-			opt(reg_quantificator).then(
-				(r)=>typeof r === 'object' && r.err===0 ? null : r
-			)
+			opt(reg_quantificator,null)
 		).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
 		seq(need(1,2,4),
 			txt('('),
-			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*'))).then(ms=>{
-				if(ms.err===0)	return [];
-				else return ms.forEach(code_to_funer)
+			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*')),[]).then(ms=>{
+				ms.forEach(code_to_funer);
+				return ms;
 			}),
 			reg_alternatives,
 			txt(')'),
-			opt(reg_quantificator).then(
-				(r)=>typeof r === 'object' && r.err===0 ? null : r
-			)
+			opt(reg_quantificator,null)
 		).then(([cycle_modifiers,{mode,fun},quant],x)=>
 			quant ? {type:'cycle',cycle_modifiers,mode,fun,quant,pos:x} :
 			cycle_modifiers.length>0 ? new ParseError(x,'модификаторы цикла можно задавать только к циклу') :
@@ -967,11 +964,11 @@ var reg_sequence = seq(need_all,
 					try{
 						var i = modifiers.length - 1;
 						while(i>=0) {
-							result = modifiers[i].data(result,X); // #todo global, errors, pos, stack
+							result = modifiers[i].data(result,X); 
 							i--;
 						}
 					}catch(err) {
-						return new ParseError(X,err) // #todo stack
+						return new ParseError(X,err) 
 					}
 					set_res(result)
 					return true;
@@ -984,7 +981,7 @@ var reg_sequence = seq(need_all,
 				}
 
 				if(c_not) {
-
+					// #todo
 				}
 				else {
 					m.mode = c_mode;
@@ -1022,7 +1019,7 @@ var reg_sequence = seq(need_all,
 
 	/* всего 2 типа функций: конкатенирующие и объектные*/
 
-	function cat_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
+	function cat_sequence(str,pos,res) { // compressed_patterns, not, modifiers, error_modifiers - closure
 		function set_res(r) {
 			if(name === null || name === '')
 				res.res = r;
@@ -1110,17 +1107,111 @@ var reg_sequence = seq(need_all,
 		try{
 			var i = modifiers.length - 1;
 			while(i>=0) {
-				result = modifiers[i].data(result,X); // #todo global, errors, pos, stack
+				result = modifiers[i].data(result,X);
 				i--;
 			}
 		}catch(err) {
-			return new ParseError(X,err) // #todo stack
+			return new ParseError(X,err)
 		}
 		set_res(result)
 		return true;
 	}
-	function obj_sequence(str,pos,res) { // compressed_patterns, not, modifiers - closure
+	function obj_sequence(str,pos,res) { // compressed_patterns, not, modifiers, error_modifiers - closure
+		function set_res(inres_res) {
+			if(name === null) {
+				for(var p in inres_res)
+					res.res[p] = inres_res[p];
+			}
+			else if(name === '')
+				res.res = inres_res;
+			else 
+				res.res[name] = inres_res;
+		}
+		var inres = {res:{}};
+		var err_mode = false;
+		var X = pos.x; // используется в сообщениях об ошибках и для восстановления после not
+		for(let i=0; i<compressed_patterns.length; i++) {
+			if(compressed_patterns[i] instanceof RegExp) {
+				var m;
+				if(m = compressed_patterns[i].exec(str.slice(pos.x))) {
+					pos.x += m.index + m[0].length;
+				}
+				else
+					return new FatalError(pos.x,'не могу прочитать /'+compressed_patterns[i].source.slice(1)+'/')
+			}
+			else if(compressed_patterns[i].type==='pattern') {
+				/* если не строка, то stringifyцируем, 
+				   если FatalError - возвращаем FatalError+обработка ошибок
+					+ если задано name - обернуть в новый FatalError и завершить
+				   если ParseError, 
+					если режим не error, удаляем результаты, кладем туда ошибку, ставим режим error
+					иначе, добавляем ошибку
+				   в режиме error правильные результаты игнорируются
+				*/
+				if(compressed_patterns[i].mode==='cat') {
+					var back_res = {}; // игнорируем
+					var err = compressed_patterns[i].fun(str,pos,back_res); // ВЫЗВАЛИ!
+				}
+				else if(compressed_patterns[i].mode==='obj')
+					var err = compressed_patterns[i].fun(str,pos,inres); // ВЫЗВАЛИ!
+
+				if(isFatal(err)) {
+					try {
+						for (var j = 0; j < error_modifiers.length; i++) {
+							err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
+						}
+					}
+					catch(err) {} // при исключении обработчики ошибок выполняться перестают
+					if(name!=null || notFatal(err)) // нельзя уменьшать значимость фатальной ошибки
+						return new FatalError(X,'при чтении '+(name?name:'безымянной группы'),err)
+					else
+						return err;
+				}
+				else if(!isGood(err)) {
+					// продолжаем даже если not
+					if(!err_mode)
+						inres = []
+					inres.push(err);
+					err_mode = true;
+				}
+			}
+			else if(compressed_patterns[i].type==='link') {
+				// #todo поиск функции, а потом вызов как при pattern
+			}
+			else console.assert(false,'неизвестный тип паттерна');
+		}
+
+		/*	
+		в конце, вызываются обработчики ошибок с arg=массиву ошибок
+		после обработчиков, если задано name или результат не ParseError и не Fatal Error - обернуть в новый ParseError
+		*/
+		if(err_mode) {
+			var err = inres;
+			try {
+				for (var j = 0; j < error_modifiers.length; i++) {
+					err = error_modifiers[i](err,X) // циклически выполняются обработчики ошибок
+				}
+			}
+			catch(err) {} // при исключении обработчики ошибок выполняться перестают
+			if(name || isGood(err)) // нельзя уменьшать значимость ошибки
+				return new ParseError(X,'при чтении '+(name?name:'безымянной группы'),err)
+			else
+				return err;
+		}
+		//обработчики
+		try{
+			var i = modifiers.length - 1;
+			while(i>=0) {
+				inres.res = modifiers[i].data(inres.res,X);
+				i--;
+			}
+		}catch(err) {
+			return new ParseError(X,err)
+		}
+		set_res(inres.res)
+		return true;
 	}
+
 	var e_sequence = mode ==='obj' ? obj_sequence : cat_sequence;
 	if(not) {
 		function not_e_sequence(str,pos,res) {
