@@ -135,7 +135,7 @@
 				    "err": 1,
 				    "what": "при чтении безымянной группы",
 				    "where": 0,
-				    "res": [
+				    "why": [
 				        {
 				            "err": 1,
 				            "what": {
@@ -159,7 +159,7 @@
 				assertDeepEqual(reg_sequence.exec('?`{throw {readed:arg}}`<abc').fun('abc',{x:0},res),new ParseError(0,{readed:"abc"}));
 			})
 			it_parse('?`{return {readed:arg}}`<abc','abc',{readed:"abc"},parse('reg_sequence'))
-			it_parse("?`arg+arg`<?`arg+arg`abc",'abc','abcabcabcabc',//parse('reg_sequence'))
+			it_parse("?`arg+arg`?`arg+arg`<abc",'abc','abcabcabcabc',//parse('reg_sequence'))
 		function do_parse(pattern,str,res) {
 			var inres = {res:{}};
 			console.log('НАЧАЛО')
@@ -247,8 +247,21 @@
 		it_compile('[ \\a \\b \\c ]',/[abc]/,compile('bnf_class'))
 	});
 	describe('reg_class ::= `[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.` // возвращает регексп (без галки вначале)',()=>{
+		it_err_compile('',()=>new FatalError(0,'не могу прочитать reg_class',
+				new FatalError(0,'не удалось прочитать ни одну из альтернатив',[
+					new FatalError(0,'не могу прочитать \'.\''),
+					new FatalError(0,'не могу прочитать \'[\'')
+					])
+			),compile('reg_class'));
 		it_compile('.',/./,compile('reg_class'))
-		it_compile('.',/./,compile('reg_class'))
+		it_err_compile('[',()=>new FatalError(1,'произошли следующие ошибки: ',[
+				new FatalError(1,'не могу прочитать \'^\''),
+				new FatalError(0,'не могу прочитать reg_class',
+					new FatalError(0,'не удалось прочитать ни одну из альтернатив',[
+							new FatalError(0,'не могу прочитать \'.\''),
+							new FatalError(1,'не могу прочитать \']\'')
+						]))
+			]),compile('reg_class'))
 		it_compile('[]',/[]/,compile('reg_class'))
 		it_compile('[^]',/[^]/,compile('reg_class'))
 		it_compile('[`abc`]',/[abc]/,compile('reg_class'))
@@ -256,11 +269,19 @@
 		it_compile('[abc]',/[abc]/,compile('reg_class'))
 		it_compile('[a-z]',/[a-z]/,compile('reg_class'))
 		it_compile('[\\$-\\^]',/[\$-\^]/,compile('reg_class'))
-		it_err_compile('[a-]',()=>new FatalError(0,"не могу прочитать reg_class",
-			new FatalError(0,'не удалось прочитать ни одну из альтернатив',[
-				new FatalError(0,'не могу прочитать .'),
-				new FatalError(2,'не могу прочитать ]')
-			])),compile('reg_class'))
+		it_err_compile('[a-]',()=>new FatalError(3,'произошли следующие ошибки: ',[
+				new FatalError(3,'не могу прочитать reg_classChar'),
+				new FatalError(2,'не удалось прочитать ни одну из альтернатив',[
+						new FatalError(2,'не могу прочитать reg_classChar'),
+						new FatalError(2,'не могу прочитать quotedSequence')
+					]),
+				new FatalError(0,"не могу прочитать reg_class",
+					new FatalError(0,'не удалось прочитать ни одну из альтернатив',[
+						new FatalError(0,'не могу прочитать \'.\''),
+						new FatalError(2,'не могу прочитать \']\'')
+					]))
+			]),compile('reg_class'))
+
 		it_compile('[a\\-]',/[a\-]/,compile('reg_class'))
 	})
 	describe('bnf_classChar ::= /'+/[^ \\\/` ` ^-|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{

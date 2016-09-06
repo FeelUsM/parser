@@ -5,10 +5,12 @@ function main(module, exports, require) {
 
 //мы поняли то что прочитали, но это не то, что мы хотим
 // в этом случае обработка прекращается (т.к. вместо результата ParseError), а парсинг (последовательностей) продолжается
-// это не влияет на последовательность выполнения seq, rep и opt
-// это влияет только на any, в самом деле: если синтаксически удалось разобрать 2 варианта, и в одном из них произошла логическая ошибка, 
+// это влияет на any так: если синтаксически удалось разобрать 2 варианта, и в одном из них произошла логическая ошибка, 
 //    то логично использовать разобранный вариант, где нет ошибок
 //    но на практике это встречается редко
+// на последовательность разбора seq и rep это не влияет, но они создают 
+//	  new ParseError(where/*старт*/,[полученных ошибок],обычный результат)
+// в обработчиках then ParseError поступает на обычный обработчик
 function ParseError(where,what,res){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
 	this.err = 1
@@ -17,15 +19,15 @@ function ParseError(where,what,res){
 	this.res = res; // не обязательный
 }
 //мы не поняли, что прочитали
-function FatalError(where,what,by){
+function FatalError(where,what,why){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
 	this.err = 2
 	this.what = what; // если what - массив, то where не имеет смысла
 	this.where = where;
-	this.by = by;
+	this.why = why;
 }
-var tail_error; // GLOBAL VARIABLE for tail error
-var parser_debug; // GLOBAL VARIABLE for tail error
+var tail_error = []; // GLOBAL VARIABLE for tail error
+// var parser_debug; // GLOBAL VARIABLE for debug
 
 // is result
 function isGood(r){
@@ -46,18 +48,58 @@ function addErrMessage(r,message){
 //строка должна соответствовать паттерну от начала и до конца
 //иначе ParseError(pos.x,'остались неразобранные символы',r)
 function read_all(str, pos, pattern) {
+	tail_error = [];
 	pos = {x:0}//и далее передаем всегда по ссылке
 	var r = pattern(str,pos);
-	if(!isGood(r))
-		if(r===undefined)
-			return new FatalError(pos.x,'unknown error')
-		else
-			return r;
-	else
+	if(isGood(r)) {
 		if(pos.x == str.length)
 			return r;
 		else
 			return new FatalError(pos.x,'unparsed chars are remained',tail_error);
+	}
+	else if(tail_error.length!==0 && isFatal(r)) {
+		tail_error.push(r);
+		var where = 0;
+		for(var i=0; i<tail_error.length; i++)
+			if(tail_error[i].where > where)
+				where = tail_error[i].where;
+		return new FatalError(where,'произошли следующие ошибки: ',tail_error)
+	}
+	else {
+		if(r===undefined)
+			return new FatalError(pos.x,'unknown error')
+		else
+			return r;
+	}
+}
+function error_prepare(r,{}) {
+	if(notFatal(r) || !Array.isArray(r.why)) return r;
+	var accum = new FatalError(r.where,'отфильтрованные ошибки: ',[]);
+	var path = [];
+	function for_why(r) {
+		if(Array.isArray(r.why)) {
+			path.push(r);
+			r.why.forEach(for_why)
+			path.pop();
+		}
+		else if(r.why!==undefined && isFatal(r.why)) {
+			path.push(r);
+			for_why(r.why);
+			path.pop();
+		}
+		else {
+			r.why = path.map(x=>new FatalError(x.where,x.what)).filter(x=>
+				x.what!=='произошли следующие ошибки: ' &&
+				x.what!=='не удалось прочитать ни одну из альтернатив' &&
+				x.what!=='unparsed chars are remained'
+			).reverse();
+			accum.why.push(r);
+		}
+	}
+	for_why(r);
+	accum.why.sort((l,r)=>r.where-l.where);
+	//accum.why = accum.why.filter(x=>x.where>accum.why[0].where-10)
+	return accum;
 }
 
 // основной конструктор
@@ -66,9 +108,21 @@ function Pattern(exec) {
 	// если pos не передан, то строка должна соответствовать паттерну от начала и до конца
 	// иначе ParseError(pos.x,'остались неразобранные символы',r)
 	this.exec = function pattern_exec(str, pos/*.x*/){
-		tail_error = undefined;
 		if(pos === undefined) return read_all(str,pos,exec);
-		else return exec(str,pos);
+		else {
+			var lte = tail_error; // local tail_error
+			tail_error = [];
+			var local_pos = pos.x;
+			var err =  exec(str,pos);
+			if(lte.length!==0 && (local_pos === pos.x || isFatal(err))) {
+				if(tail_error.length!==0)
+					for (var i = 0; i < tail_error.length; i++) {
+						lte.push(tail_error[i]);
+					}
+				tail_error = lte;
+			}
+			return err;
+		}
 	};
 	// если результат - то transform, иначе - error_transform
 	// можно преобразовать результат в ошибку и наоборот
@@ -76,18 +130,18 @@ function Pattern(exec) {
 		if(error_transform){
 			console.assert(typeof error_transform === 'function')
 			if(typeof transform === 'function')
-				return new Pattern(function pattern_then_reserr(str,pos/*.x*/){
+				return new Pattern(function pattern_then_reserr(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (!isGood(r)) ?
+					return (isFatal(r)) ?
 						error_transform(x,r) :
 						transform(r,x);
 				});
 			else
-				return new Pattern(function pattern_then_err(str,pos/*.x*/){
+				return new Pattern(function pattern_then_err(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (!isGood(r)) ?
+					return (isFatal(r)) ?
 						error_transform(x,r) :
 						r;
 				});
@@ -96,7 +150,7 @@ function Pattern(exec) {
 			return new Pattern(function pattern_then_res(str, pos/*.x*/) {
 				var x = pos.x;
 				var r = exec(str, pos);
-				return (!isGood(r)) ?
+				return (isFatal(r)) ?
 					r :
 					transform(r,x);
 			});
@@ -107,7 +161,7 @@ function Pattern(exec) {
 }
 function Forward(){
 	var self = this;
-	this.exec = function forward_exec(){		return self.pattern.exec.apply(self.pattern,arguments);	}
+	this.exec = function forward_exec(){	return self.pattern.exec.apply(self.pattern,arguments);	}
 	this.then = function forward_then(){	return self.pattern.then.apply(self.pattern,arguments);	}
 }
 
@@ -118,7 +172,7 @@ function read_txt(str, pos, text) {
 		pos.x += text.length;
 		return text;
 	}
-	return new FatalError(pos.x,'не могу прочитать '+text);
+	return new FatalError(pos.x,'не могу прочитать \''+text+'\'');
 }
 function txt(text) {
 	return new Pattern((str,pos)=>read_txt(str,pos,text));
@@ -133,7 +187,7 @@ function read_rgx(str, pos, regexp) {
 		pos.x += m.index + m[0].length;
 		return m
 	}
-	return new FatalError(pos.x,'не могу прочитать '+regexp.source)
+	return new FatalError(pos.x,'не могу прочитать /'+regexp.source+'/')
 }
 //если в начале regexp не стоит ^, то она будет поставлена автомамтически
 function rgx(regexp) {
@@ -151,8 +205,8 @@ function read_opt(str, pos, pattern, def={err:0}/*не ошибка*/) {
 	var x = pos.x;
 	var r = pattern(str, pos)
 	if(!isGood(r))	{
-		tail_error = r;
 		pos.x=x;
+		tail_error.push(r);
 		return def;
 	}
 	return r;
@@ -162,8 +216,8 @@ function opt(pattern,def={err:0}) {
 }
 
 // читает последовательность, в случае неудачи позицию НЕ восстанавливает
-// если ParseError - чтение продолжается, если FatalError - чтение сразу завершается с FatalError, и то же произойдет в предыдущей последовательности
-// #todo 
+// если ParseError - чтение продолжается, если FatalError - чтение сразу завершается с FatalError, 
+// и то же произойдет в последовательности предыдущего уровня
 //от isFatal зависит, что будет включено в ответ
 function read_seq(str, pos, isFatal, patterns) {
 	var res = {a:[]}; // a - array
@@ -180,29 +234,30 @@ function seq(isFatal/*(res//.a//,r//.res//,i,pos)*/, ...patterns) {
 
 // какие результаты из последовательности паттернов включать в ответ
 // в случае ParseError у результата устанавливает .err=1 и .what = массиву ошибок ParseError
-function need_all(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
-	if(!notFatal(r.res))
+// а также сам ParseError добавиться в массив и в массив ошибок
+function need_all(res/*.a*/,r/*.res*/,i,pos) { // isFatal()
+	if(isFatal(r.res))
 		return true;
-	if(!isGood(r.res)){
-		res.a.err = 1;
-		if(res.a.what)
-			res.a.what.push(r.res);
-		else
-			res.a.what = [r.res];
+	if(!isGood(r.res)) {
+		if(isGood(res.a))
+			res.a = new ParseError(pos,[],res.a);
+		res.a.what.push(r.res);
 	}
-	res.a.push(r.res);
+	if(isGood(res.a))
+		res.a.push(r.res);
+	else
+		res.a.res.push(r.res)
+
 	return false;
 }
 // в случае ParseError у результата устанавливает .err=1 и .what = массиву ошибок ParseError
 function need_none(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 	if(!notFatal(r.res))
 		return true;
-	if(!isGood(r.res)){
-		res.a.err = 1;
-		if(res.a.what)
-			res.a.what.push(r.res);
-		else
-			res.a.what = [r.res];
+	if(!isGood(r.res)) {
+		if(isGood(res.a))
+			res.a = new ParseError(pos,[],res.a);
+		res.a.what.push(r.res);
 	}
 	return false;
 }
@@ -217,14 +272,17 @@ function need(...indexes){
 		return function need_one(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 			if(!notFatal(r.res))
 				return true;
-			if(!isGood(r.res)){
-				res.a.err = 1;
-				if(res.a.what)
-					res.a.what.push(r.res);
-				else
-					res.a.what = [r.res];
+			if(!isGood(r.res)) {
+				if(isGood(res.a))
+					res.a = new ParseError(pos,[],res.a);
+				res.a.what.push(r.res);
 			}
-			if(i==indexes[0])	res.a = r.res;
+			if(i==indexes[0]) {
+				if(isGood(res.a))
+					res.a = r.res;
+				else
+					res.a.res = r.res;
+			}
 			return false;
 		}
 	else
@@ -232,15 +290,18 @@ function need(...indexes){
 		return function need_indexes(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 			if(!notFatal(r.res))
 				return true;
-			if(!isGood(r.res)){
-				res.err = 1;
-				if(res.what)
-					res.what.push(r.res);
-				else
-					res.what = [r.res];
+			if(!isGood(r.res)) {
+				if(isGood(res.a))
+					res.a = new ParseError(pos,[],res.a);
+				res.a.what.push(r.res);
 			}
 			var k = indexes.indexOf(i);
-			if(k!=-1)	res.a[k] = r.res;
+			if(k!=-1) {
+				if(isGood(res.a))
+					res.a[k] = r.res;
+				else
+					res.a.res[k] = r.res;
+			}
 			return false;
 		}
 }
@@ -251,46 +312,39 @@ function need(...indexes){
 function read_rep(str, pos, pattern, separated, min, max) {
 	min = min===undefined ? 0 : min;
 	max = max===undefined ? +Infinity : max;
-	var res = [], x = pos.x, r = pattern(str, pos);
-	var i = 1;
 
-	if(min>0 && !isGood(r)/* && isGood(res)*/){
-		res.err = 1;
-		res.where = x;
-		res.what = r.what;
-	}
-	while (i<min && notFatal(r)) {
-		if(!isGood(r) && isGood(res)){
-			res.err = 1;
-			res.where = x;
-			res.what = r.what;
+	var res = [], x = pos.x
+	var i=0;
+	for(;i<min; i++) {
+		var r = i==0 ? pattern(str,pos) : separated(str,pos);
+		if(isFatal(r)) return r;
+		if(!isGood(r)) {
+			if(isGood(res))
+				res = new ParseError(x,[],res);
+			res.what.push(r);
 		}
-		res.push(r);
+		if(isGood(res))
+			res.push(r);
+		else
+			res.res.push(r)
+	}
+	for(;i<max; i++) {
 		x = pos.x;
-		r = separated(str, pos/*.x*/);
-		i++;
-	}
-	if(min>0 && isFatal(r)){
-		pos.x = x;
-		return r;
-	}
-	if(!isGood(res) || i==1 && !isGood(r)){
-		pos.x = x;
-		return res;
-	}
-
-	while (i<max && isGood(r)) {
-		res.push(r);
-		x = pos.x;
-		r = separated(str, pos/*.x*/);
-		i++;
-	}
-	if(isGood(r))
-		res.push(r);
-	else {
-		tail_error = r;
-		console.log('tail_error: ',r)
-		pos.x = x;
+		var r = i==0 ? pattern(str,pos) : separated(str,pos);
+		if(isFatal(r)) {
+			pos.x = x;
+			tail_error.push(r);
+			return res;
+		}
+		if(!isGood(r)) {
+			if(isGood(res))
+				res = new ParseError(x,[],res);
+			res.what.push(r);
+		}
+		if(isGood(res))
+			res.push(r);
+		else
+			res.res.push(r)
 	}
 	return res;
 }
@@ -308,31 +362,11 @@ function rep(pattern, options, separator, then) {
 	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
 }
 
-// #todo понадобится - доделать
-// то же что и rep, только допускает возможность ParseError
-// в этом случае устанавливает .err = 1
-function rep_more(pattern, separator) {
-	var separated = !separator ? pattern :
-		seq(need(1), separator, pattern);
-
-	return new Pattern(function rep_more_pattern(str, pos/*.x*/) {
-		var res = [], x = pos.x, r = pattern.exec(str, pos);
-		while (notFatal(r)) {
-			res.push(r);
-			if(r.err) res.err = 1;
-			x = pos.x;
-			r = separated.exec(str, pos);
-		}
-		pos.x = x;
-		return res;
-	});
-}
-
 // перебирает паттерны с одной и той же позиции до достижения удачного результата
 // от isGood зависит, будут ли собираться ошибки
 function read_any(str, pos/*.x*/, isGood, patterns) {
-	var errs = {a:new FatalError(pos.x,'не удалось прочитать ни одну из альтернатив',[])},
-		x = pos.x;
+	var x = pos.x;
+	var errs = {a:new FatalError(pos.x,'не удалось прочитать ни одну из альтернатив',[])};
 	for (var r, i = 0; i < patterns.length; i++){
 		pos.x = x; // что бы у isGood была возможность выставить pos перед выходом из цикла
 		r = patterns[i](str, pos)
@@ -351,7 +385,7 @@ function any(isGood, ...patterns) {
 function collect(errs/*.a*/,r,i,pos/*.x*/){ // isGood
 	if(isGood(r))  return true;
 	if(!r)         return false;
-	errs.a.by.push(r)//collect
+	errs.a.why.push(r)//collect
 	return false;
 }
 
@@ -390,7 +424,6 @@ exports.need_none = need_none;
 exports.need = need;
 exports.read_rep = read_rep;
 exports.rep = rep;
-exports.rep_more = rep_more; // #todo понадобится - доделать
 exports.read_any = read_any;
 exports.any = any;
 exports.collect = collect;
@@ -676,10 +709,7 @@ var reg_sequence = seq(need_all,
 		).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
 		seq(need(1,2,4),
 			txt('('),
-			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*')),[]).then(ms=>{
-				ms.forEach(code_to_funer);
-				return ms;
-			}),
+			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*')),[]).then(ms=>ms.map(code_to_funer)),
 			reg_alternatives,
 			txt(')'),
 			opt(reg_quantificator,null)
