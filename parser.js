@@ -45,6 +45,11 @@ function addErrMessage(r,message){
 	return r;
 }
 
+var err_tail = (x,why)=>new FatalError(x,'в тексте присутствует одна из ошибок:',why);
+exports.err_tail = err_tail;
+var err_unknown = (x)=>new FatalError(x,'unknown error');
+exports.err_unknown = err_unknown;
+
 //строка должна соответствовать паттерну от начала и до конца
 //иначе ParseError(pos.x,'остались неразобранные символы',r)
 function read_all(str, pos, pattern) {
@@ -55,7 +60,7 @@ function read_all(str, pos, pattern) {
 		if(pos.x == str.length)
 			return r;
 		else
-			return new FatalError(pos.x,'unparsed chars are remained',tail_error);
+			return err_tail(pos.x,tail_error);
 	}
 	else if(tail_error.length!==0 && isFatal(r)) {
 		tail_error.push(r);
@@ -63,18 +68,28 @@ function read_all(str, pos, pattern) {
 		for(var i=0; i<tail_error.length; i++)
 			if(tail_error[i].where > where)
 				where = tail_error[i].where;
-		return new FatalError(where,'произошли следующие ошибки: ',tail_error)
+		return err_tail(where,tail_error)
 	}
 	else {
 		if(r===undefined)
-			return new FatalError(pos.x,'unknown error')
+			return err_unknown(pos.x)
 		else
 			return r;
 	}
 }
-function error_prepare(r,{}) {
-	if(notFatal(r) || !Array.isArray(r.why)) return r;
-	var accum = new FatalError(r.where,'отфильтрованные ошибки: ',[]);
+
+var err_filtered = (x,why)=>new FatalError(x,'отфильтрованные ошибки:',why);
+exports.err_filtered = err_filtered;
+
+function error_prepare(r) {
+	if(notFatal(r) || r.why===undefined) return r;
+	if(false){//r.what==='unparsed chars are remained' || r.what==='в тексте присутствует одна из ошибок:') {
+		return new FatalError(r.where,r.what,r.why.map(r=>new FatalError(r.where,r.what)))
+		// r.why.forEach(r=>{delete r.why});
+		return r;
+	}
+
+	var accum = err_filtered(r.where,[]);
 	var path = [];
 	function for_why(r) {
 		if(Array.isArray(r.why)) {
@@ -88,19 +103,22 @@ function error_prepare(r,{}) {
 			path.pop();
 		}
 		else {
+			/*
 			r.why = path.map(x=>new FatalError(x.where,x.what)).filter(x=>
 				x.what!=='произошли следующие ошибки: ' &&
 				x.what!=='не удалось прочитать ни одну из альтернатив' &&
 				x.what!=='unparsed chars are remained'
 			).reverse();
+			*/
 			accum.why.push(r);
 		}
 	}
 	for_why(r);
 	accum.why.sort((l,r)=>r.where-l.where);
-	//accum.why = accum.why.filter(x=>x.where>accum.why[0].where-10)
+	//accum.why = accum.why.filter(x=>x.where==accum.why[0].where)
 	return accum;
 }
+exports.error_prepare = error_prepare;
 
 // основной конструктор
 function Pattern(exec) {
@@ -165,6 +183,8 @@ function Forward(){
 	this.then = function forward_then(){	return self.pattern.then.apply(self.pattern,arguments);	}
 }
 
+var err_txt = (x,text)=>new FatalError(x,'ожидалось \''+text+'\'');
+exports.err_txt = err_txt;
 
 // если текст читается - возвращает его, иначе ничего
 function read_txt(str, pos, text) {
@@ -172,11 +192,14 @@ function read_txt(str, pos, text) {
 		pos.x += text.length;
 		return text;
 	}
-	return new FatalError(pos.x,'не могу прочитать \''+text+'\'');
+	return err_txt(pos.x,text);
 }
 function txt(text) {
 	return new Pattern((str,pos)=>read_txt(str,pos,text));
 }
+
+var err_rgx = (x,text)=>new FatalError(x,'ожидалось /'+text+'/');
+exports.err_rgx = err_rgx;
 
 // если regexp читается (не забываем в начале ставить ^)
 //- возвращает массив разбора ([0] - вся строка, [1]... - соответствуют скобкам из regexp)
@@ -187,7 +210,7 @@ function read_rgx(str, pos, regexp) {
 		pos.x += m.index + m[0].length;
 		return m
 	}
-	return new FatalError(pos.x,'не могу прочитать /'+regexp.source+'/')
+	return err_rgx(pos.x,regexp.source)
 }
 //если в начале regexp не стоит ^, то она будет поставлена автомамтически
 function rgx(regexp) {
@@ -362,11 +385,14 @@ function rep(pattern, options, separator, then) {
 	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
 }
 
+var err_any = (x,why)=>new FatalError(x,'alternatives:',why);
+exports.err_any = err_any;
+
 // перебирает паттерны с одной и той же позиции до достижения удачного результата
 // от isGood зависит, будут ли собираться ошибки
 function read_any(str, pos/*.x*/, isGood, patterns) {
 	var x = pos.x;
-	var errs = {a:new FatalError(pos.x,'не удалось прочитать ни одну из альтернатив',[])};
+	var errs = {a:err_any(pos.x,[])};
 	for (var r, i = 0; i < patterns.length; i++){
 		pos.x = x; // что бы у isGood была возможность выставить pos перед выходом из цикла
 		r = patterns[i](str, pos)
@@ -447,13 +473,25 @@ ted._exec(str)
 	function toLowercase
 */
 
+var err_spc = (x)=>new FatalError(x,'ожидался пробельный символ');
+exports.err_spc = err_spc;
+
+var err_num = (x)=>new FatalError(x,'ожидалось число');
+exports.err_num = err_num;
+
+var err_id = (x)=>new FatalError(x,'ожидался идентификатор');
+exports.err_id = err_id;
+
 // spc ::= "[\ \r\n\t\v\f]"
-var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,x=>new FatalError(x,'ожидался пробельный символ'));
+var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,err_spc);
 //exports.spc = spc;
 // num ::= "[0-9]+"
-var num = rgx(/^[0-9]+/).then(m=>+m[0],x=>new FatalError(x,'ожидалось число'));
+var num = rgx(/^[0-9]+/).then(m=>+m[0],err_num);
 // identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
-var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then(m=>m[0],x=>new FatalError(x,'ожидался идентификатор'))
+var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then(m=>m[0],err_id)
+
+var err_qseq = (x)=>new FatalError(x,'ожидалась строка в обратных кавычках');
+exports.err_qseq = err_qseq;
 
 /*
 quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
@@ -465,9 +503,12 @@ var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
 		//console.log('escseq = '+escseq+' to '+ res);
 		return res;
 	}),
-	x=>new FatalError(x,'не могу прочитать quotedSequence')
+	err_qseq
 );
 exports.quotedSequence = quotedSequence;
+
+var err_char = (x)=>new FatalError(x,'ожидался символ');
+exports.err_char = err_char;
 
 /*
 рег: char ::= /[^\\\/\``|$.*+?()[]{}`] | `\\`./ // [\\\/\``|$.*+?()[]{}bfnrtv'"`] /
@@ -476,14 +517,17 @@ exports.quotedSequence = quotedSequence;
 */
 var reg_char = rgx(/^[^\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
-	x=>new FatalError(x,'не могу прочитать reg_char')
+	err_char
 );
 exports.reg_char = reg_char;
 var bnf_char = rgx(/^\\(.)/).then(
 	m=>m[1],
-	x=>new FatalError(x,'не могу прочитать bnf_char')
+	err_char
 );
 exports.bnf_char = bnf_char;
+
+var err_classChar = (x)=>new FatalError(x,'ожидался символ класса');
+exports.err_classChar = err_classChar;
 
 /*
 рег: classChar ::= /[^\\\/\``^-|$.*+?()[]{}`] | `\\`. / // [\\\/\``^-|$.*+?()[]{}bfnrtv'"`]/ // отличие от char в ^ и -
@@ -492,14 +536,17 @@ exports.bnf_char = bnf_char;
 */
 var reg_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
-	x=>new FatalError(x,'не могу прочитать reg_classChar')
+	err_classChar
 );
 exports.reg_classChar = reg_classChar;
 var bnf_classChar = rgx(/^[^\^\-\ \\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
-	x=>new FatalError(x,'не могу прочитать bnf_classChar')
+	err_classChar
 );
 exports.bnf_classChar = bnf_classChar;
+
+var err_inClass = (x,why)=>new FatalError(x,'в классе',why);
+exports.err_inClass = err_inClass;
 
 /*
 рег: class ::= "`[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.`"
@@ -531,7 +578,7 @@ var reg_class = any(collect,
 	).then(merger)
 ).then(
 	s=>new RegExp(s),
-	(x,e)=>new FatalError(x,'не могу прочитать reg_class',e)
+	err_inClass
 );
 exports.reg_class = reg_class;
 var spcs = rep(spc,star).then(r=>'');
@@ -551,7 +598,7 @@ var bnf_class = any(collect,
 	).then(merger)
 ).then(
 	s=>new RegExp(s),
-	(x,e)=>new FatalError(x,'не могу прочитать bnf_class',e)
+	err_inClass
 );
 exports.bnf_class = bnf_class;
 
@@ -572,16 +619,18 @@ var reg_link = seq(need(1),txt('$'),
 symbol ::= "char|quotedSequence|class|link"
 // возвращает строку или регексп или ссылку на паттерн
 */
-var reg_symbol = any(collect,reg_char,quotedSequence,reg_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_symbol',e));
-var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class).then(0,(x,e)=>new FatalError(x,'не могу прочитать bnf_symbol',e));
-// отличия:                   ^                       ^                                                            ^
+var reg_symbol = any(collect,reg_char,quotedSequence,reg_class).then(0,err_char);
+var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class).then(0,err_char);
+
+var err_quant = (x)=>new FatalError(x,'ожидался квантификатор');
+exports.err_quant = err_quant;
 
 /*
 рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
 БНФ: quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`"
 // возвращет объект {min:int,max:int}
 */
-var reg_quantificator = any(collect,
+var reg_quantifier = any(collect,
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
@@ -599,9 +648,9 @@ var reg_quantificator = any(collect,
 			}))
 		)
 	,txt('}'))
-).then(0,(x,e)=>new FatalError(x,'не могу прочитать reg_quantificator',e));
-exports.reg_quantificator = reg_quantificator;
-var bnf_quantificator = any(collect,
+).then(0,err_quant);
+exports.reg_quantifier = reg_quantifier;
+var bnf_quantifier = any(collect,
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
@@ -619,8 +668,8 @@ var bnf_quantificator = any(collect,
 			}))
 		),
 	spcs,txt('}'))
-).then(0,(x,e)=>new FatalError(x,'не могу прочитать bnf_quantificator',e));
-exports.bnf_quantificator = bnf_quantificator;
+).then(0,err_quant);
+exports.bnf_quantifier = bnf_quantifier;
 
 
 /*
@@ -665,14 +714,10 @@ var modifier = seq(need(1), txt('?'), any(collect,
 		txt('<')
 	).then(([o,e])=>{o.error = e; return o;}),
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
+	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
-)).then(0,(x,e)=>new FatalError(x,'не могу прочитать modifier',e));
-var namedModifier = any(collect,
-	modifier,
-	seq(need(1),txt('?'), opt(identifier,'').then(s=>({type:'returnname',data:s})), txt('='))//,
-	//txt('*').then(()=>({type:'delimiter'}))
-).then(0,(x,e)=>new FatalError(x,'не могу прочитать namedModifier',e));
-exports.namedModifier = namedModifier;
+)).then(0,(x,e)=>new FatalError(x,'in modifier',e));
+exports.modifier = modifier;
 
 /*
 рег: sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
@@ -701,18 +746,18 @@ var reg_alternatives = new Forward();
 var code_to_funer = m=>{ if(m.type==='postscript') m.data = code_to_fun(m.data); return m};
 var pos_adder = (m,x)=>{m.pos = x; return m;};
 var reg_sequence = seq(need_all,
-	rep(namedModifier.then(code_to_funer).then(pos_adder)), // модификаторы
+	rep(modifier.then(code_to_funer).then(pos_adder)), // модификаторы
 	rep(any(collect, // паттерны
 		seq(need_all,
 			reg_symbol,
-			opt(reg_quantificator,null)
+			opt(reg_quantifier,null)
 		).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
 		seq(need(1,2,4),
 			txt('('),
-			opt(seq(need(0),rep(namedModifier.then(pos_adder)),txt('*')),[]).then(ms=>ms.map(code_to_funer)),
+			opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]).then(ms=>ms.map(code_to_funer)),
 			reg_alternatives,
 			txt(')'),
-			opt(reg_quantificator,null)
+			opt(reg_quantifier,null)
 		).then(([cycle_modifiers,{mode,fun},quant],x)=>
 			quant ? {type:'cycle',cycle_modifiers,mode,fun,quant,pos:x} :
 			cycle_modifiers.length>0 ? new ParseError(x,'модификаторы цикла можно задавать только к циклу') :
@@ -1067,7 +1112,7 @@ var reg_sequence = seq(need_all,
 					if(!err_mode) inres.push(m[0]);
 				}
 				else
-					return new FatalError(pos.x,'не могу прочитать /'+compressed_patterns[i].source.slice(1)+'/')
+					return err_rgx(pos.x,compressed_patterns[i].source.slice(1))
 			}
 			else if(compressed_patterns[i].type==='pattern') {
 				/* если не строка, то stringifyцируем, 
