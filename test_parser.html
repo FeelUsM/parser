@@ -55,15 +55,15 @@
 		var global = window;
 	}
 
-	function it_compile(pattern,obj,code) {
+	function it_compile(pattern,obj,code,comment='') {
 		if(typeof code ==='string') code = compile(code);
 		function tmp() {
 			code(pattern,obj);
 		}
 		tmp.toString = code.toString.bind(code);
-		it('"'+pattern+'" ---> '+JSON.stringify(obj),tmp);
+		it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj),tmp);
 	}
-	function it_err_compile(pattern,efun,code) { // error func
+	function it_err_compile(pattern,efun,code,comment='') { // efun - error func
 		if(typeof code ==='string') code = compile(code);
 		function tmp() {
 			code(pattern,efun());
@@ -71,7 +71,7 @@
 		tmp.toString = code.toString.bind(code);
 		var efs = efun.toString(); // error func string
 		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
-		it('"'+pattern+'" ---> '+efs,tmp);
+		it(comment+'"'+pattern+'" ---> '+efs,tmp);
 	}
 	function compile(fun) {
 		function do_compile(pattern,obj) {
@@ -80,13 +80,13 @@
 		do_compile.toString = ()=>'assertPrepareDeepEqual('+fun+'.exec(pattern),obj);'
 		return do_compile;
 	}
-	function it_parse(pattern,str,res,code) {
+	function it_parse(pattern,str,res,code,comment='') {
 		if(typeof code ==='string' || typeof code==='undefined') code = parse(code);
 		function tmp() {
 			code(pattern,str,res);
 		}
 		tmp.toString = code.toString.bind(code);
-		it('"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
+		it(comment+'"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
 	}
 	function parse(fun) {
 		if(!fun) fun = 'reg_sequence'
@@ -103,7 +103,7 @@
 			'assertDeepEqual(inres.res,res);'
 		return do_parse;
 	}
-	function it_err_parse(pattern,str,efun,code) {
+	function it_err_parse(pattern,str,efun,code,comment='') {
 		if(typeof code ==='string' || typeof code==='undefined') code = err_parse(code);
 		function tmp() {
 			code(pattern,str,efun());
@@ -111,7 +111,7 @@
 		tmp.toString = code.toString.bind(code);
 		var efs = efun.toString();
 		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
-		it('"'+pattern+'" ---> fun('+str+') -> '+efs,tmp);
+		it(comment+'"'+pattern+'" ---> fun('+str+') -> '+efs,tmp);
 	}
 	function err_parse(fun) {
 		if(!fun) fun = 'reg_sequence'
@@ -159,6 +159,30 @@
 			it_err_parse('?`{throw {readed:arg}}`<abc'	,'abc',()=>new ParseError(0,{readed:"abc"})) // #todo err
 			it_parse(	'?`{return {readed:arg}}`<abc'	,'abc',{readed:"abc"},parse('reg_sequence'))
 			it_parse(	"?`arg+arg`<?`arg+arg`<abc"		,'abc','abcabcabcabc',parse('reg_sequence'))
+			it_err_compile(	"?`arg+arg`<?`arg+arg`abc"	,()=>err_filtered(21,[
+					err_txt(21,'error'),
+					err_txt(21,'<'),
+					err_id(12),
+					err_txt(12,'!'),
+					err_id(12),
+					err_txt(12,'='),
+					err_txt(12,'toString:'),
+					err_char(11),
+					err_txt(11,'('),
+					err_txt(11,'$')
+				]),'reg_sequence')
+			it_err_compile(	"?`arg+arg`?`arg+arg`<abc"	,()=>err_filtered(10,[
+					err_txt(10,'error'),
+					err_txt(10,'<'),
+					err_id(1),
+					err_txt(1,'!'),
+					err_id(1),
+					err_txt(1,'='),
+					err_txt(1,'toString:'),
+					err_char(0),
+					err_txt(0,'('),
+					err_txt(0,'$')
+				]),'reg_sequence')
 			it_parse(	"?`arg+arg`<abc"				,'abc','abcabc',parse('reg_sequence'))
 			it_parse(	"?{readed:arg}<abc"				,'abc',{readed:"abc"},parse('reg_sequence'))
 		})
