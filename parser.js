@@ -829,6 +829,12 @@ function modify_result(modifiers,res,begin,end) {
 
 var err_in = (x, why, what)=>new FatalError(x,'in '+what,why)
 var err_uncycle = (x,i,name)=>new FatalError(x,'защита от зацикливания '+name+': на итерации '+i+' было прочитано 0 символов');
+var err_not_fail = (x,name)=> new FatalError(x,'удалось прочитать то, что не должно быть прочитано: '+name)
+exports.err_not_fail = err_not_fail;
+var perr_c_name = x=>new ParseError(x,'объектный цикл должен иметь (возможно пустое) имя')
+var err_seq_c_modifiers = x=>new PaarseError(x,'модификаторы цикла можно задавать только к циклу');
+var perr_dublicate = (x,name)=>new ParseError(x,'повторно указано: '+name);
+var perr_cycle_bp = x=>new ParseError(x,'цикл не может содержать back_pattern');
 
 /*
 рег: sequence ::= "modifier* (symbol quantificator? | `(`alternatives`)` quantificator? )*" 
@@ -868,10 +874,10 @@ var reg_sequence = seq(need_all,
 			reg_alternatives,
 			txt(')'),
 			opt(reg_quantifier,null)
-		).then(([cycle_modifiers,{mode,fun},quant],x)=>
-			quant ? {type:'cycle',cycle_modifiers,mode,fun,quant,pos:x} :
-			cycle_modifiers.length>0 ? new ParseError(x,'модификаторы цикла можно задавать только к циклу') :
-			{type:'pattern',mode,fun,pos:x}),
+		).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
+			quant ? {type:'cycle',quant,cycle_modifiers,mode,fun,direct,pos:x} :
+			cycle_modifiers.length>0 ? err_seq_c_modifiers(x) :
+			{type:'pattern',mode,fun,direct,pos:x}),
 		reg_link.then((s,x)=>({type:'link',link:s,pos:x}))
 	))
 ).then(([modifiers,patterns],pattern_x)=>{
@@ -909,7 +915,7 @@ var reg_sequence = seq(need_all,
 	};
 	var patterns_schema = {
 		id:'patterns_schema',
-		definitions:{
+		definitions:{ quantificator:{
 			id:'quantificator',
 			type:['null','object'],
 			requiredProperties:{
@@ -917,7 +923,7 @@ var reg_sequence = seq(need_all,
 				max:{ type:'integer' }
 			},
 			additionalProperties:false,
-		},
+		}},
 		type:'array',
 		items:{
 			type:'object',
@@ -931,18 +937,20 @@ var reg_sequence = seq(need_all,
 					symbol:{ type:['string','RegExp'] },
 					quant:{ $ref:'#quantificator'}
 				}},
-				{requiredProperties:{
-					type:{ enum:['pattern'] },
-					mode:{ enum:['cat','obj'] },
-					fun:{ type:'Function' }
-				}},
-				{requiredProperties:{
-					type:{ enum:['cycle'] },
-					mode:{ enum:['cat','obj'] },
-					fun:{ type:'Function' },
-					quant:{ $ref:'#quantificator'},
-					cycle_modifiers:{ $ref:'modifiers_schema' }
-				}},
+				{allOfPropSchemas:[
+					{requiredProperties:{
+						type:{ enum:['pattern'] }
+					}},
+					{$ref:'#fun_schema'}
+				]},
+				{allOfPropSchemas:[
+					{requiredProperties:{
+						type:{ enum:['cycle'] },
+						quant:{ $ref:'#quantificator'},
+						cycle_modifiers:{ $ref:'modifiers_schema' }
+					}},
+					{$ref:'#fun_schema'}
+				]},
 				{requiredProperties:{
 					type:{ enum:['link'] },
 					link:{ type:'string' }
@@ -950,11 +958,7 @@ var reg_sequence = seq(need_all,
 			]
 		}
 	};
-	var return_schema = {
-		type:'object',
-		properties:{
-			not:{ type:['boolean','undefined'] }
-		},
+	var fun_schema = {
 		requiredProperties:{
 			mode:{ enum:['cat','obj'] },
 			fun:{ type:'Function' },
@@ -962,9 +966,18 @@ var reg_sequence = seq(need_all,
 				type:'integer',
 				minimum:-1
 			}
-		},
+		}
+	}
+	var return_schema = {
+		type:'object',
+		allOfPropSchemas:[
+			{optionalProperties:{
+				not:{ type:['boolean','undefined'] } //используется в alternatives
+			}},
+			{$ref:'#fun_schema'}
+		],
 		additionalProperties:false
-	};
+	}
 
 	/* последовательности
 		** - перед возвращением модификатор-обработчик может превратить
@@ -1011,12 +1024,12 @@ var reg_sequence = seq(need_all,
 		}
 		else throw new Error('неизвестный тип name')
 	}
-	var make_not = fun=>function not_function(str,pos,res) {
+	var make_not = (fun,name)=>function not_function(str,pos,res) {
 		var x = pos.x;
 		var r = fun(str,pos,res);
 		pos.x = x;
 		res.res = '';
-		return !isGood(r) ? {err:"continue"} : {err:"break"}; // всегда попадет в alternatives
+		return !isGood(r) ? /*OK,but*/{err:"continue"} : err_not_fail(x,name); // всегда попадет в alternatives
 	}
 
 	/* всего 2 типа функций: конкатенирующие и объектные*/
@@ -1038,7 +1051,7 @@ var reg_sequence = seq(need_all,
 				   если FatalError - возвращаем FatalError+обработка ошибок
 					+ если задано name - обернуть в новый FatalError и завершить
 				*/
-				if(compressed_patterns[i].mode==='cat') throw new Error('происходит вызов объектного паттерна из конкатенирующего');
+				if(compressed_patterns[i].mode!=='cat') throw new Error('происходит вызов объектного паттерна из конкатенирующего');
 				var back_res = {};
 				var err = compressed_patterns[i].fun(str,pos,back_res); // ВЫЗВАЛИ!
 
@@ -1068,7 +1081,6 @@ var reg_sequence = seq(need_all,
 	}
 	function obj_sequence(str,pos,res) { // name, compressed_patterns, modifiers, error_modifiers - closure
 		var inres = {res:{}};
-		var err_mode = false;
 		var X = pos.x; // используется в сообщениях об ошибках
 		for(var i=0; i<compressed_patterns.length; i++) {
 			if(compressed_patterns[i] instanceof RegExp) {
@@ -1135,14 +1147,14 @@ var reg_sequence = seq(need_all,
 				if(name===null)
 					name = modifiers[i].data;
 				else
-					throw new ParseError(modifiers[i].pos,'повторно указанное имя');
+					throw perr_dublicate(modifiers[i].pos,'имя');
 				modifiers.splice(i,1);
 			}
 			else if(modifiers[i].type === 'back_pattern') { // ?name->
 				if(back_pattern===null)
 					back_pattern = modifiers[i].data;
 				else
-					throw new ParseError(modifiers[i].pos,'повторно указанный back_pattern');
+					throw perr_dublicate(modifiers[i].pos,'back_pattern');
 				modifiers.splice(i,1);
 			}
 			else if(modifiers[i].type==='postscript') { // ?`code`< ?`code`error<
@@ -1303,26 +1315,26 @@ var reg_sequence = seq(need_all,
 			cache = [];
 			if(m.type === 'pattern' || m.type === 'link') {
 				if(m.mode==='obj') mode = 'obj';
+				if(has_direct<m.direct) has_direct = m.direct;
 				compressed_patterns.push(m);
 			} 
 			else if(m.type === 'cycle') {
-				var m_schema = {
-					type:'object',
-					additionalProperties:false,
-					requiredProperties:{
-						pos:{ type:'integer' },
+				var m_schema = {allOfPropSchemas:[
+					{requiredProperties:{
 						type:{ enum:['cycle'] },
-						mode:{ enum:['cat','obj'] }, 
-						fun:{ type:'Function' }, // заменяется на обертку вокруг этой
-						quant:{ $ref:'#quantificator'}, // так и остается, учавствует в замыкании
+						quant:{ $ref:'#quantificator'},
 						cycle_modifiers:{ $ref:'modifiers_schema' }
-					}
-				};
+					}},
+					{$ref:'#fun_schema'} // mode,fun,direct
+				]}
+
+				//(?!*aaa)* (?!(aaa)*)
 				/*=== определение типа цикла, и каким он является ===
 					цикл является объектным, если функция, которую он вызывает, 
 						имеет тип obj, иначе цикл является конкатенирующим
 						
 					если цикл является объектным, он обязан иметь (возможно пустое) имя
+					back_pattern в цикле нельзя указывать
 
 					цикл имеет тип obj, если у него задано (возможно пустое) имя или он является объектным, 
 						в противном случае он имеет тип cat
@@ -1333,13 +1345,28 @@ var reg_sequence = seq(need_all,
 				*/
 				// создание функции цикла, преобразовать m.type = 'pattern'
 				// обработка модификаторов цикла
-				var { c_not, c_name, c_back_pattern, c_toString, c_modifiers, c_error_modifiers } = 
+				var { 
+					not:			c_not, 
+					name:			c_name, 
+					back_pattern:	c_back_pattern, 
+					toString:		c_toString, 
+					modifiers:		c_modifiers, 
+					error_modifiers:c_error_modifiers 
+				} = 
 					filter_modifiers(m.cycle_modifiers);
-				var c_pattern = m.fun
+				// m.mode - чем цикл является
+				var c_pattern = m.fun;
+				
+				if(m.mode==='obj' && c_name===null) throw perr_c_name(m.pos)
+				// m.mode - тип цикла
+				m.mode = c_toString?'cat':m.mode==='obj'||c_name!==null?'obj':'cat';
+				m.direct = c_name==='' ? m.pos : -1;
 
+				if(back_pattern) return perr_cycle_bp(m.pos);
 				if(c_not) {
+					m.fun = make_not(m.mode==='obj' ? obj_cycle : cat_cycle,c_name)
 					m.mode = 'cat';
-					// #todo
+					m.type = pattern;
 				}
 				else {
 					// m.mode не трогаем
@@ -1348,6 +1375,7 @@ var reg_sequence = seq(need_all,
 				}
 
 				if(m.mode==='obj') mode = 'obj';
+				if(has_direct<m.direct) has_direct = m.direct;
 				compressed_patterns.push(m);
 			}
 			else throw new Error('неизвестный тип символа или паттерна или цикла');
@@ -1364,45 +1392,44 @@ var reg_sequence = seq(need_all,
 	// === parse_modifiers ===
 	var not,name,toString,back_pattern,error_modifiers;
 	try{
-		({mode,not,name,back_pattern,toString,modifiers,error_modifiers} = 
-			parse_modifiers(modifiers,compressed_patterns.length>0,mode));
-		if(compressed_patterns.length==1 && compressed_patterns[0].type=='link' && name!=null)
-			mode = 'obj'
-		if(not) {
-			if(modifiers.length>0)
-				throw new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать обработчики результата');
-			if(error_modifiers.length>0)
-				throw new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать обработчики ошибок');
-			if(name!==null)
-				throw new ParseError(pattern_x,'нельзя одновременно с отрицанием указывать имя');
-		}
-		if(back_pattern) {
-			// #todo
-		}
-		if(compressed_patterns_length_gt_0)
-			throw new ParseError(modifiers[i].pos,'нельзя одновременно указывать обратный паттерн и паттерн');
+		({not,name,back_pattern,toString,modifiers,error_modifiers} = 
+			filter_modifiers(modifiers,compressed_patterns.length>0,mode));
 	}
 	catch(err){
 		if(err instanceof ParseError) return err;
 		else                          throw  err;
 	}
+	if(compressed_patterns.length==1 && compressed_patterns[0].type=='link' && name!=null)
+		mode = 'obj'
+	if(back_pattern) {
+		// #todo
+		if(compressed_patterns.length>0)
+			;//throw new ParseError(modifiers[i].pos,'нельзя одновременно указывать обратный паттерн и паттерн');
+	}
+	if(has_direct>=0 && name==null)
+		return new ParseError(has_direct,'последовательность возвращает объект напрямую, следовательно родительская последовательность должна иметь (возможно пустое) имя');
+	if(mode==='obj' && modifiers.length>0 && name===null)
+		return new ParseError(pattern_x,'объектная последовательность может иметь обработчики, только если указано (возможно пустое) имя')
 
 	var e_sequence = mode ==='obj' ? obj_sequence : cat_sequence;
 	if(not) {
 		// not-функция всегда 'cat'
 		return {
-			fun:make_not(e_sequence),
+			fun:make_not(e_sequence,name===null?'безымянная последовательность':name),
 			mode:'cat',
 			not:true,
 			direct:-1
 		};
 	}
-	else
+	else {
 		return {
 			fun:e_sequence,
 			mode:(toString ? 'cat' : mode==='obj' || name!==null ? 'obj' : 'cat'),
-			direct:(name===null ? -1 : pattern_x) // позиция используется в сообщениях об ошибках
+			direct:(name==='' ? pattern_x : -1) // позиция используется в сообщениях об ошибках
 		};
+		console.log(name,tmp)
+		
+	}
 },
 (x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e)
 );
@@ -1424,11 +1451,11 @@ reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),re
 			
 		перечисление имеет атрибут direct, если хотябы одна из альтернатив имеет атрибут direct
 	*/
-	if(tail.length ===0 && !head.not)
+	if(tail.length ===0)
 		return head;
 	tail.unshift(head);
 	var mode = 'cat';
-	var direct = false;
+	var direct = -1;
 	for(var i = 0; i<tail.length; i++){
 		if(tail[i].mode==='obj')
 			mode = 'obj';
@@ -1452,14 +1479,16 @@ reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),re
 			if(tail[i].not) {
 				if(err.err==='continue')
 					continue;
-				else if(err.err==='break') {
+				else if(isFatal(err)) {
 					if(errs.length===0)
-						return new FatalError(X,'alternatives: был прочитан паттерн №'+i+', который не должен был быть прочитан');
-					else
-						return new FatalError(X,'alternatives: был прочитан паттерн №'+i+', который не должен был быть прочитан, а также до этого произошли ошибки:',errs);
+						return err;
+					else {
+						errs.push(err);
+						return err_any(X,errs)
+					}
 				}
 				else
-					console.assert(false,'последовательность с отрицанием вернула '+JSON.stringify(err));
+					throw new Error('последовательность с отрицанием вернула '+JSON.stringify(err));
 			}
 			if(!isGood(err)) {
 				errs.push(err);
@@ -1472,7 +1501,7 @@ reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),re
 				res.res = '';
 			return true;
 		}
-		return new FatalError(X,'не удалось прочитать ни одну из альтернатив',errs)
+		return err_any(X,errs)
 	}
 	return {
 		fun:e_alternatives,
