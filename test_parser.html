@@ -55,6 +55,13 @@
 		var global = window;
 	}
 
+	function compile(fun) {
+		function do_compile(pattern,obj) {
+			assertPrepareDeepEqual(global[fun].exec(pattern),obj);
+		}
+		do_compile.toString = ()=>'assertPrepareDeepEqual('+fun+'.exec(pattern),obj);'
+		return do_compile;
+	}
 	function it_compile(pattern,obj,code,comment='') {
 		if(typeof code ==='string') code = compile(code);
 		function tmp() {
@@ -73,21 +80,6 @@
 		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
 		it(comment+'"'+pattern+'" ---> '+efs,tmp);
 	}
-	function compile(fun) {
-		function do_compile(pattern,obj) {
-			assertPrepareDeepEqual(global[fun].exec(pattern),obj);
-		}
-		do_compile.toString = ()=>'assertPrepareDeepEqual('+fun+'.exec(pattern),obj);'
-		return do_compile;
-	}
-	function it_parse(pattern,str,res,code,comment='') {
-		if(typeof code ==='string' || typeof code==='undefined') code = parse(code);
-		function tmp() {
-			code(pattern,str,res);
-		}
-		tmp.toString = code.toString.bind(code);
-		it(comment+'"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
-	}
 	function parse(fun) {
 		if(!fun) fun = 'reg_sequence'
 		function do_parse(pattern,str,res) {
@@ -102,6 +94,14 @@
 			'assertDeepEqual('+fun+'.exec(pattern).fun(str,{x:0},inres),true);\n'+
 			'assertDeepEqual(inres.res,res);'
 		return do_parse;
+	}
+	function it_parse(pattern,str,res,code,comment='') {
+		if(typeof code ==='string' || typeof code==='undefined') code = parse(code);
+		function tmp() {
+			code(pattern,str,res);
+		}
+		tmp.toString = code.toString.bind(code);
+		it(comment+'"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
 	}
 	function it_err_parse(pattern,str,efun,code,comment='') {
 		if(typeof code ==='string' || typeof code==='undefined') code = err_parse(code);
