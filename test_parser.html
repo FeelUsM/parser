@@ -30,6 +30,7 @@
 	copyProps(require('parser'),window);
 
 	RegExp.prototype.toJSON = function(){ return '/'+this.source+'/' }
+	Function.prototype.toJSON = function() { return 'function('+this.length+')'; }
 
 	function assertDeepEqual(real,expected) {
 		try{
@@ -207,22 +208,22 @@
 				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:true},
 				compile('modifier'))
 			it_compile('?`"hello world"`<',
-				{type:"postscript",data:'"hello world"',error:false},
+				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:false},
 				compile('modifier'))
 			it_compile('?`{return "hello world"}`<',
-				{type:"postscript",data:'{return "hello world"}',error:false},
+				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:false},
 				compile('modifier'))
 			describe('complicated object',()=>{
 				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
 					{	type:"postscript",
-						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
+						data:function(arg,pos){return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}},
 						error:false
 					},
 					compile('modifier')
 				)
 				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
 					{	type:"postscript",
-						data:'{return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}}',
+						data:function(arg,pos){return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}},
 						error:true
 					},
 					compile('modifier')

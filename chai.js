@@ -443,6 +443,8 @@ require.register("chaijs~deep-eql@0.1.3", function (exports, module) {
       return dateEqual(a, b);
     } else if ('regexp' === type(a)) {
       return regexpEqual(a, b);
+    } else if ('function' === type(a)) {
+      return functionEqual(a, b);
     } else if (Buffer.isBuffer(a)) {
       return bufferEqual(a, b);
     } else if ('arguments' === type(a)) {
@@ -512,6 +514,20 @@ require.register("chaijs~deep-eql@0.1.3", function (exports, module) {
   function regexpEqual(a, b) {
     if ('regexp' !== type(b)) return false;
     return sameValue(a.toString(), b.toString());
+  }
+
+  /*!
+   * Compare two functions by converting them
+   * to JSON and checking for `sameValue`.
+   *
+   * @param {Func} a
+   * @param {Func} b
+   * @return {Boolean} result
+   */
+
+  function functionEqual(a, b) {
+    if ('function' !== type(b)) return false;
+    return sameValue(a.toJSON(), b.toJSON());
   }
 
   /*!
