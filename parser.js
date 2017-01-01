@@ -690,6 +690,7 @@ function code_to_fun(code) {
 	else
 		return (new Function('arg','pos','return '+code)).bind(global_modifier_object);
 }
+var code_to_funer = m=>{ if(m.type==='postscript') m.data = code_to_fun(m.data); return m};
 var string = any(collect,
 	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
 	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
@@ -720,7 +721,7 @@ var modifier = seq(need(1), txt('?'), any(collect,
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
-)).then(0,(x,e)=>new FatalError(x,'in modifier',e));
+)).then(code_to_funer,(x,e)=>new FatalError(x,'in modifier',e));
 exports.modifier = modifier;
 
 /* есть 3 типа "функций":
@@ -861,10 +862,9 @@ function minmaxToRegExp({min,max}) {
 		return '{'+min+','+max+'}'
 }
 var reg_alternatives = new Forward();
-var code_to_funer = m=>{ if(m.type==='postscript') m.data = code_to_fun(m.data); return m};
 var pos_adder = (m,x)=>{m.pos = x; return m;};
 var reg_sequence = seq(need_all,
-	rep(modifier.then(code_to_funer).then(pos_adder)), // модификаторы
+	rep(modifier/*.then(code_to_funer)*/.then(pos_adder)), // модификаторы
 	rep(any(collect, // паттерны
 		seq(need_all,
 			reg_symbol,
@@ -872,7 +872,7 @@ var reg_sequence = seq(need_all,
 		).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
 		seq(need(1,2,4),
 			txt('('),
-			opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]).then(ms=>ms.map(code_to_funer)),
+			opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]),//.then(ms=>ms.map(code_to_funer)),
 			reg_alternatives,
 			txt(')'),
 			opt(reg_quantifier,null)

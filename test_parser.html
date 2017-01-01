@@ -204,7 +204,7 @@
 		})
 		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
 			it_compile('?`"hello world"`error<',
-				{type:"postscript",data:'"hello world"',error:true},
+				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:true},
 				compile('modifier'))
 			it_compile('?`"hello world"`<',
 				{type:"postscript",data:'"hello world"',error:false},
