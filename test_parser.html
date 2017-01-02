@@ -23,6 +23,11 @@
 
   </head>
 <body>
+	<p>
+	В паттерне перед ---&gt; строка в кавычках как есть. А после - JSON.stringify() или fun(...).
+	<br>
+	В строке для разбора - сначала строка как есть без кавычек, а потом, после ---&gt; - JSON.stringify().
+	</p>
 	<div id="mocha"/>
 <script>
 ;(function(){
@@ -162,6 +167,7 @@
 			it_err_compile(	"?`arg+arg`<?`arg+arg`abc"	,()=>err_filtered(21,[
 					err_txt(21,'error'),
 					err_txt(21,'<'),
+					err_txt(21,'?<'),
 					err_id(12),
 					err_txt(12,'!'),
 					err_id(12),
@@ -174,6 +180,7 @@
 			it_err_compile(	"?`arg+arg`?`arg+arg`<abc"	,()=>err_filtered(10,[
 					err_txt(10,'error'),
 					err_txt(10,'<'),
+					err_txt(10,'?<'),
 					err_id(1),
 					err_txt(1,'!'),
 					err_id(1),
@@ -295,13 +302,13 @@
 		it_err_compile('$'	,()=>err_char(0),compile('bnf_char'))
 		it_err_compile(''	,()=>err_char(0),compile('bnf_char'))
 	})
-	describe('reg_char ::= /'+/[^ \\\/` `|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
+	describe('reg_char ::='+/[^ \\\/` |$.*+?()[]{}`] | \\./.source+'\n--возвращает символ',()=>{
 		it_compile(		'1'		,'1'			,compile('reg_char'))
 		it_err_compile(	'$'		,()=>err_char(0),compile('reg_char'))
 		it_compile(		'\\$'	,'$'			,compile('reg_char'))
 		it_err_compile(	""		,()=>err_char(0),compile('reg_char'))
 	})
-	describe('quotedSequence ::= /'+/`\`` ( [^`\\] | \\\\ | \\`)* `\``/.source+'/ // возвращает строку',()=>{
+	describe('quotedSequence ::='+/`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\``/.source+' (?#возвращает строку)',()=>{
 		it_compile(	/`qwer`/.source		,'qwer'			,compile('quotedSequence'))
 		it_compile(	/`qw\\er`/.source	,'qw\\er'		,compile('quotedSequence'))
 		it_compile(	/`qw\`er`/.source	,'qw`er'		,compile('quotedSequence'))

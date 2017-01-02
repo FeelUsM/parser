@@ -460,47 +460,122 @@ exports.collect = collect;
 exports.notCollect = notCollect;
 //exports.exc = exc;
 
-Error.prototype.toJSON = function(){ return {name:this.name,message:this.message} }
-/*
+/* todo старое
 придумать систему сообщений об ошибках
 написать преобразователь из регексов и необработанных строк
 реализовать sequence, char, quotedSequence
 использовать в html-mocha-chai
 дальше все остальное
 
-ted._add(name,opts,regexp,fun)
-ted._remove(name)
-ted._main = name
-ted._exec(str)
+red._add(name,opts,regexp,fun)
+red._remove(name)
+red._main = name
+red._exec(str)
 опции: 
 	синтаксис больше похож на БНФ или на регулярки
 	function toLowercase
 */
 
+/*
+spc :=[\ \r\n\t\v\f]
+spcs:=$spc*
+num :=<[0-9]+
+identifier :=[a-zA-Z_][a-zA-Z_0-9]*
+quotedSequence ::=`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\``
+
+reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.(?#здесь перечислены управляющие символы, остальные символы считаются обычными)
+bnf_char :=\\.(?#любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать)
+reg_classChar ::= [^\\\/\``^-;|$.*+?()[]{}`] | `\\`.(?#к управляющим символам добавляется `^-`, пробелы разрешены)
+bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.(?#к управляющим символам добавляется `^-`, пробелы запрещены);
+reg_class ::= `.` | `[``^`?       ($reg_classChar(`-`$reg_classChar)?       |$quotedSequence      )*`]`;
+bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs |$quotedSequence $spcs)*`]`;
+
+link ::= ?`arg.id`< `$` ( ?id=$identifier | `{` (?id=$identifier) `}` );
+reg_symbol ::= $reg_char|$quotedSequence|$reg_class|$link;
+bnf_symbol ::= $bnf_char|$quotedSequence|$bnf_class|$link;
+quantifier ::= [`*+?`] | `{`$spc*(`,`$spc*$num|$num($spc*`,`$spc*$num?)?)$spc*`}` (?#пока только энергичные);
+
+string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
+object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
+modifier ::= `?`
+(	`!`
+|	(\`[^\`]*\`|$object) `error`? `<`
+|	(\`[^\`]*\`|$object) `?<` (?# ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)
+|	$identifier`->`
+|	$identifier?`=`
+|	`toString:`
+);
+fake_modifier ::= `?`
+(	`!`
+|	(\`[^\`]*\`|$object) `error`? `<`
+|	(\`[^\`]*\`|$object) `?<`
+|	$identifier`->`
+|	$identifier?`=`
+|	`toString:`
+);
+comment ::= `(?#` ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
+
+reg_sequence ::= $modifier* ($link |
+(	$reg_symbol $quantifier?
+| 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+fake_reg_sequence ::= $fake_modifier* ($link |
+(	$reg_symbol $quantifier?
+| 	`(`   ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+bnf_sequence ::= modifier* ($spc* $link |
+($spc*(	$bnf_symbol $quantifier? 
+| 	`(`   (     $modifier* $spc* `*`)? $spc*      $bnf_alternatives $spc* `)` $quantifier?
+|	$comment
+))*)
+;
+(?#fake_... - синтаксис такой же как у настоящего, только не происходит обработка)
+
+reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
+bnf_alternatives      ::= $bnf_sequence      ($spc* `|`$bnf_sequence     )*;
+
+expr ::= $spc* $identifier $spc* (`:=`$reg_alternatives | `::=` $spc* $bnf_alternatives $spc* );
+main ::= $expr(`;` $comment? $expr)* `;`? ;
+
+(?# а еще можно : добавить в спец-символы, и все предложения объединить в один текст)
+*/
+
+Error.prototype.toJSON = function(){ return {name:this.name,message:this.message} }
+var merger = (arr)=>{
+	var r = arr.join('');
+	//console.log('merge: '+r);
+	return r;
+}
+
+// ====================================================================================================
+/* spc spcs num identifier quotedSequence
+spc :=[\ \r\n\t\v\f]
+spcs:=$spc*
+num :=[0-9]+
+identifier :=[a-zA-Z_][a-zA-Z_0-9]*
+quotedSequence ::=`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\``
+*/
+
 var err_spc = (x)=>new FatalError(x,'ожидался пробельный символ');
 exports.err_spc = err_spc;
+var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,err_spc);
+//exports.spc = spc;
+var spcs = rep(spc,star).then(r=>'');
 
 var err_num = (x)=>new FatalError(x,'ожидалось число');
 exports.err_num = err_num;
+var num = rgx(/^[0-9]+/).then(m=>+m[0],err_num);
 
 var err_id = (x)=>new FatalError(x,'ожидался идентификатор');
 exports.err_id = err_id;
-
-// spc ::= "[\ \r\n\t\v\f]"
-var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,err_spc);
-//exports.spc = spc;
-// num ::= "[0-9]+"
-var num = rgx(/^[0-9]+/).then(m=>+m[0],err_num);
-// identifier ::= "[a-zA-Z_][a-zA-Z_0-9]*"
 var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then(m=>m[0],err_id)
 
+// возвращает строку, в которой убрано экранирование
 var err_qseq = (x)=>new FatalError(x,'ожидалась строка в обратных кавычках');
 exports.err_qseq = err_qseq;
-
-/*
-quotedSequence ::= /`\`` ( [^\`] | `\\\``)* `\``/
-// возвращает строку
-*/
 var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
 	m=>m[1].replace(/\\\\|\\`/g,(escseq)=>{
 		var res = escseq==='\\\\' ? '\\' : '`';
@@ -511,15 +586,20 @@ var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
 );
 exports.quotedSequence = quotedSequence;
 
+// ====================================================================================================
+/* reg-char bnf-char reg-classChar bnf-classChar reg-class bnf-class
+reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.(?#здесь перечислены управляющие символы, остальные символы считаются обычными)
+bnf_char :=\\.(?#любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать)
+reg_classChar ::= [^\\\/\``^-;|$.*+?()[]{}`] | `\\`.(?#к управляющим символам добавляется `^-`, пробелы разрешены)
+bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.(?#к управляющим символам добавляется `^-`, пробелы запрещены);
+reg_class ::= `.` | `[``^`?       ($reg_classChar(`-`$reg_classChar)?       |$quotedSequence      )*`]`;
+bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs |$quotedSequence $spcs)*`]`;
+*/
+
+// возвращает символ
 var err_char = (x)=>new FatalError(x,'ожидался символ');
 exports.err_char = err_char;
-
-/*
-рег: char ::= /[^\\\/\``|$.*+?()[]{}`] | `\\`./ // [\\\/\``|$.*+?()[]{}bfnrtv'"`] /
-БНФ: char ::= /`\\`. / // здесь экранируется всё
-// возвращает символ
-*/
-var reg_char = rgx(/^[^\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+var reg_char = rgx(/^[^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_char
 );
@@ -530,43 +610,28 @@ var bnf_char = rgx(/^\\(.)/).then(
 );
 exports.bnf_char = bnf_char;
 
+// возвращает символ
 var err_classChar = (x)=>new FatalError(x,'ожидался символ класса');
 exports.err_classChar = err_classChar;
-
-/*
-рег: classChar ::= /[^\\\/\``^-|$.*+?()[]{}`] | `\\`. / // [\\\/\``^-|$.*+?()[]{}bfnrtv'"`]/ // отличие от char в ^ и -
-БНФ: classChar ::= /[^\\\/\`` ^-|$.*+?()[]{}`] | `\\`. / // [\\\/\`` ^-|$.*+?()[]{}bfnrtv'"`]/ // здесь еще пробел экранируется
-// возвращает символ
-*/
-var reg_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+var reg_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
 exports.reg_classChar = reg_classChar;
-var bnf_classChar = rgx(/^[^\^\-\\\/`\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./).then(
+var bnf_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
 exports.bnf_classChar = bnf_classChar;
 
-var err_inClass = (x,why)=>new FatalError(x,'в классе',why);
-exports.err_inClass = err_inClass;
-
-/*
-рег: class ::= "`[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.`"
-БНФ: class ::= "`[``^`? spc* (classChar(`-`classChar)? spc*|quotedSequence spc*)*`]` | `.`"
 // возвращает регексп (без галки вначале)
-*/
 var escaper = (s)=>{
 	var r = s.replace(/([\^\-\ \\\/\|\$\.\*\+\?\(\)\[\]\{\}])/g,'\\$1');
 	//console.log('replace: '+r);
 	return r;
 }
-var merger = (arr)=>{
-	var r = arr.join('');
-	//console.log('merge: '+r);
-	return r;
-}
+var err_inClass = (x,why)=>new FatalError(x,'в классе',why);
+exports.err_inClass = err_inClass;
 var reg_class = any(collect,
 	txt('.'),
 	seq(need_all, 
@@ -584,7 +649,6 @@ var reg_class = any(collect,
 	err_inClass
 );
 exports.reg_class = reg_class;
-var spcs = rep(spc,star).then(r=>'');
 var bnf_class = any(collect,
 	txt('.'),
 	seq(need_all, 
@@ -605,35 +669,32 @@ var bnf_class = any(collect,
 );
 exports.bnf_class = bnf_class;
 
-
-/*
-balansedBrackets ::= "`(`([^`()`]|balansedBrackets)*`)`" 
-рег: link ::= "`$`(identifier|`{`identifier balansedBrackets? `}`)"
-БНФ: link ::= "`$`( identifier | `{` identifier balansedBrackets?`}` ) | identifier balansedBrackets?" // без пробелов
-// возвращает ссылку на паттерн
+// ====================================================================================================
+/* link reg-symbol bnf-symbol quantifier
+link ::= ?`arg.id`< `$` ( ?id=$identifier | `{` (?id=$identifier) `}` );
+reg_symbol ::= $reg_char|$quotedSequence|$reg_class|$link;
+bnf_symbol ::= $bnf_char|$quotedSequence|$bnf_class|$link;
+quantifier ::= [`*+?`] | `{`$spc*(`,`$spc*$num|$num($spc*`,`$spc*$num?)?)$spc*`}` (?#пока только энергичные);
 */
 
-var reg_link = seq(need(1),txt('$'),
+// возвращает ссылку на паттерн
+var err_link = (x)=>new FatalError(x,'ожидалась ссылка');
+exports.err_link = err_link;
+var link = seq(need(1),txt('$'),
 	any(collect,identifier,
 		seq(need(1),txt('{'),identifier,txt('}')))
-)
+).then(id=>({link:id}),err_link);
+/* todo так и остаются, но через sequence & alternatives накапливаются и доходят до корня, 
+	чтобы можно было осуществить проверку на битые ссылки*/
 
-/*
-symbol ::= "char|quotedSequence|class|link"
 // возвращает строку или регексп или ссылку на паттерн
-*/
-var reg_symbol = any(collect,reg_char,quotedSequence,reg_class).then(0,err_char);
-var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class).then(0,err_char);
+var reg_symbol = any(collect,reg_char,quotedSequence,reg_class,link).then(0,err_char);
+var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class,link).then(0,err_char);
 
+// возвращет объект {min:int,max:int}
 var err_quant = (x)=>new FatalError(x,'ожидался квантификатор');
 exports.err_quant = err_quant;
-
-/*
-рег: quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные
-БНФ: quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`"
-// возвращет объект {min:int,max:int}
-*/
-var reg_quantifier = any(collect,
+/* var reg_quantifier = any(collect,
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
@@ -653,7 +714,8 @@ var reg_quantifier = any(collect,
 	,txt('}'))
 ).then(0,err_quant);
 exports.reg_quantifier = reg_quantifier;
-var bnf_quantifier = any(collect,
+*/
+var quantifier = any(collect,
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
@@ -672,15 +734,29 @@ var bnf_quantifier = any(collect,
 		),
 	spcs,txt('}'))
 ).then(0,err_quant);
-exports.bnf_quantifier = bnf_quantifier;
+exports.quantifier = quantifier;
 
-
-/*
-modifier ::= "`?` ( `!` | \\` ([^\\`])* `\\`<` | identifier`->`)?"
-namedModifier ::= "modifier | `?`identifier?`=`"
-// возвращает объект {type: строка(not|postscript|back_pattern|returnname), data:строка или function(arg,global,stack)}
-// если в тексте функции не встретилось return, оно добавляется перед все строкой
-#todo добавить превращение в строку ?toString:
+// ====================================================================================================
+/* string object modifier fake-modifier comment
+string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
+object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
+modifier ::= `?`
+(	`!`
+|	(\`[^\`]*\`|$object) `error`? `<`
+|	(\`[^\`]*\`|$object) `?<` (?# ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)
+|	$identifier`->`
+|	$identifier?`=`
+|	`toString:`
+);
+fake_modifier ::= `?`
+(	`!`
+|	(\`[^\`]*\`|$object) `error`? `<`
+|	(\`[^\`]*\`|$object) `?<`
+|	$identifier`->`
+|	$identifier?`=`
+|	`toString:`
+);
+comment ::= `(?#` ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
 
 back_pattern - видимо это ссылка на паттерн, которая может быть установлена обработчиками при разборе предыдущих конструкций
 
@@ -690,8 +766,10 @@ error - означает, что обработчик вызовется для 
 возвращаемое значение является результатом или сообщением об ошибке.
 кинутые исключения - записываются в modifier_throws и error_modifier_throws - todo: сделать для каждого класса свой
 	а результат становится undefined, а если это обработка ошибки, то она не меняется
+
+? а что происходит при синтаксической ошибке при new Function ?
 */
-var global_modifier_object = {};
+var global_modifier_object = {}; // пока глобальный, но потом будет инициализироваться перед парсингом паттерна
 function code_to_fun(code) {
 	var fun;
 	if(/^\s*\{/.test(code) && /\}\s*$/.test(code))
@@ -726,6 +804,15 @@ var modifier = seq(need(1), txt('?'), any(collect,
 		),
 		opt(txt('error')).then(s=>s==='error'),
 		txt('<')
+	).then(([o,e])=>{o.error = e; return o;}),
+	seq(need(0),
+		any(collect,
+			seq(need(1),txt('`'),
+				rgx(/^[^`]*/).then(m=>({type:'postscript',data:'arg.length==1?arg[0]:'+m[0]})),
+				txt('`')),
+			object.then(s=>({type:'postscript',data:'{return arg.length==1?arg[0]:'+s+'}'}))
+		),
+		txt('?<')
 	).then(([o,e])=>{o.error = e; return o;}),
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
@@ -891,7 +978,12 @@ var reg_sequence = seq(need_all,
 			{type:'pattern',mode,fun,direct,pos:x}),
 		reg_link.then((s,x)=>({type:'link',link:s,pos:x}))
 	))
-).then(([modifiers,patterns],pattern_x)=>{
+).then(sequence_compiler,
+	(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e)
+);
+exports.reg_sequence = reg_sequence;
+
+function sequence_compiler([modifiers,patterns],pattern_x){
 	var modifiers_schema = {
 		id:"modifiers_schema",
 		type:'array',
@@ -1441,10 +1533,7 @@ var reg_sequence = seq(need_all,
 		console.log(name,tmp)
 		
 	}
-},
-(x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e)
-);
-exports.reg_sequence = reg_sequence;
+}
 
 /*
 alternatives ::= "sequence (`|`sequence)*"
