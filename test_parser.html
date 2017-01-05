@@ -19,6 +19,10 @@
 
   <script src="utils.js"></script>
   <script src="modules_manager.js"></script>
+  
+  <script src="parser_test_utils.js"> </script>
+  
+  <script src="meta_parser.js"> </script>
   <script src="parser.js"> </script>
 
   </head>
@@ -33,105 +37,8 @@
 ;(function(){
 	'use strict';
 	copyProps(require('parser'),window);
+	copyProps(require('parser_test_utils'),window);
 
-	RegExp.prototype.toJSON = function(){ return '/'+this.source+'/' }
-	Function.prototype.toJSON = function() { return 'function('+this.length+')'; }
-
-	function assertDeepEqual(real,expected) {
-		try{
-			assert.deepEqual(expected,real);
-		}
-		catch(err){
-			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+
-				'\nreal: '+JSON.stringify(real,'',4)+
-				'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
-			throw err
-		}
-	}
-	function assertPrepareDeepEqual(real,expected){
-		try {
-			assertDeepEqual(error_prepare(real),expected);
-		}
-		catch(err) {
-			err.message +='\nunprepared: '+JSON.stringify(real,'',4);
-			throw err;
-		}
-	}
-	if(typeof global === 'undefined') {
-		var global = window;
-	}
-
-	function compile(fun) {
-		function do_compile(pattern,obj) {
-			assertPrepareDeepEqual(global[fun].exec(pattern),obj);
-		}
-		do_compile.toString = ()=>'assertPrepareDeepEqual('+fun+'.exec(pattern),obj);'
-		return do_compile;
-	}
-	function it_compile(pattern,obj,code,comment='') {
-		if(typeof code ==='string') code = compile(code);
-		function tmp() {
-			code(pattern,obj);
-		}
-		tmp.toString = code.toString.bind(code);
-		it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj),tmp);
-	}
-	function it_err_compile(pattern,efun,code,comment='') { // efun - error func
-		if(typeof code ==='string') code = compile(code);
-		function tmp() {
-			code(pattern,efun());
-		}
-		tmp.toString = code.toString.bind(code);
-		var efs = efun.toString(); // error func string
-		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
-		it(comment+'"'+pattern+'" ---> '+efs,tmp);
-	}
-	function parse(fun) {
-		if(!fun) fun = 'reg_sequence'
-		function do_parse(pattern,str,res) {
-			var inres = {res:{}};
-			var funobj = global[fun].exec(pattern);
-			if(!funobj.fun)
-				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
-			assertDeepEqual(funobj.fun(str,{x:0},inres),true);
-			assertDeepEqual(inres.res,res);
-		}
-		do_parse.toString = ()=>'var inres = {res:{}};\n'+
-			'assertDeepEqual('+fun+'.exec(pattern).fun(str,{x:0},inres),true);\n'+
-			'assertDeepEqual(inres.res,res);'
-		return do_parse;
-	}
-	function it_parse(pattern,str,res,code,comment='') {
-		if(typeof code ==='string' || typeof code==='undefined') code = parse(code);
-		function tmp() {
-			code(pattern,str,res);
-		}
-		tmp.toString = code.toString.bind(code);
-		it(comment+'"'+pattern+'" ---> fun('+str+' ---> '+JSON.stringify(res)+') -> true',tmp);
-	}
-	function it_err_parse(pattern,str,efun,code,comment='') {
-		if(typeof code ==='string' || typeof code==='undefined') code = err_parse(code);
-		function tmp() {
-			code(pattern,str,efun());
-		}
-		tmp.toString = code.toString.bind(code);
-		var efs = efun.toString();
-		efs = /^\(\)=>/.test(efs) ? efs.slice(4) : efs;
-		it(comment+'"'+pattern+'" ---> fun('+str+') -> '+efs,tmp);
-	}
-	function err_parse(fun) {
-		if(!fun) fun = 'reg_sequence'
-		function do_parse(pattern,str,res) {
-			var inres = {res:{}};
-			var funobj = global[fun].exec(pattern);
-			if(!funobj.fun)
-				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
-			assertPrepareDeepEqual(funobj.fun(str,{x:0},inres),res);
-		}
-		do_parse.toString = ()=>'var inres = {res:{}};\n'+
-			'assertPrepareDeepEqual('+fun+'.exec(pattern).fun(str,{x:0},inres),res);'
-		return do_parse;
-	}
 // ===============================================================================
 	describe('complex tests for one pattern',()=>{
 		describe('objects',()=>{
@@ -163,8 +70,8 @@
 		describe('script feature',()=>{
 			it_parse(	'?`{throw {readed:arg}}`<abc'	,'abc',undefined,'reg_sequence','за то в набор складывает') // #todo err
 			it_parse(	'?`{return {readed:arg}}`<abc'	,'abc',{readed:"abc"},parse('reg_sequence'))
-			it_parse(	"?`arg+arg`<?`arg+arg`<abc"		,'abc','abcabcabcabc',parse('reg_sequence'))
-			it_err_compile(	"?`arg+arg`<?`arg+arg`abc"	,()=>err_filtered(21,[
+			it_parse(	"?`arg+arg`<'+'?`arg+arg`<abc"		,'abc','abcabcabcabc',parse('reg_sequence'))
+			it_err_compile(	"?`arg+arg`<'+'?`arg+arg`abc"	,()=>err_filtered(21,[
 					err_txt(21,'error'),
 					err_txt(21,'<'),
 					err_txt(21,'?<'),
@@ -188,7 +95,7 @@
 					err_txt(1,'toString:'),
 					err_char(0),
 					err_txt(0,'('),
-					err_txt(0,'$')
+					err_txt(0,'(?#')
 				]),'reg_sequence')
 			it_parse(	"?`arg+arg`<abc"				,'abc','abcabc',parse('reg_sequence'))
 			it_parse(	"?{readed:arg}<abc"				,'abc',{readed:"abc"},parse('reg_sequence'))
@@ -249,138 +156,7 @@
 			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile('modifier'))
 		})
 	})
-	describe('bnf_quantificator ::= "[`*+?`]|`{`spc*(num|num?spc*`,`spc*num?)spc*`}`" // пока только энергичные',()=>{
-		it_compile('{ 3 , 5 }',{min:3,max:5}		,compile('bnf_quantifier'))
-	})
-	describe('reg_quantificator ::= "[`*+?`]|`{`(num|num?`,`num?)`}`" // пока только энергичные',()=>{
-		it_compile('+'		,{min:1,max:Infinity}	,compile('reg_quantifier'))
-		it_compile('{3,5}'	,{min:3,max:5}			,compile('reg_quantifier'))
-		it_compile('{3}'	,{min:3,max:3}			,compile('reg_quantifier'))
-		it_compile('{3,}'	,{min:3,max:Infinity}	,compile('reg_quantifier'))
-		it_compile('{,3}'	,{min:0,max:3}			,compile('reg_quantifier'))
-	})
-	describe('bnf_class ::= `[``^`?spc* (classChar(`-`classChar)?spc* |quotedSequence spc* )*`]`|`.` // возвращает регексп (без галки вначале)',()=>{
-		it_compile('[ \\a \\b \\c ]',/[abc]/,compile('bnf_class'))
-	});
-	describe('reg_class ::= `[``^`?(classChar(`-`classChar)?|quotedSequence)*`]`|`.` // возвращает регексп (без галки вначале)',()=>{
-		it_err_compile(	''			,()=>err_filtered(0,[err_txt(0,'.'),err_txt(0,'[')]),compile('reg_class'));
-		it_compile(		'.'			,/./												,compile('reg_class'))
-		it_err_compile(	'['			,()=>err_filtered(1,[
-			err_txt(1,'^'),err_classChar(1),err_qseq(1),err_txt(1,']'),err_txt(0,'.')])	,compile('reg_class'))
-		it_compile(		'[]'		,/[]/												,compile('reg_class'))
-		it_compile(		'[^]'		,/[^]/												,compile('reg_class'))
-		it_compile(		'[`abc`]'	,/[abc]/											,compile('reg_class'))
-		it_compile(		'[`a^$`]'	,/[a\^\$]/											,compile('reg_class'))
-		it_compile(		'[abc]'		,/[abc]/											,compile('reg_class'))
-		it_compile(		'[a-z]'		,/[a-z]/											,compile('reg_class'))
-		it_compile(		'[\\$-\\^]'	,/[\$-\^]/											,compile('reg_class'))
-		it_err_compile(	'[a-]'		,()=>err_filtered(3,[
-			err_classChar(3),err_classChar(2),err_qseq(2),err_txt(2,']'),err_txt(0,'.')]),compile('reg_class'))
-		it_compile(		'[a\\-]'	,/[a\-]/											,compile('reg_class'))
-	})
-	describe('bnf_classChar ::= /'+/[^ \\\/` ` ^-|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it_compile(		'1','1',compile('bnf_classChar'))
-		it_err_compile(	' '		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_err_compile(	'^'		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_err_compile(	'-'		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_compile(		'\\^'	,'^'					,compile('bnf_classChar'))
-		it_compile(		'\\-'	,'-'					,compile('bnf_classChar'))
-		it_err_compile(	''		,()=>err_classChar(0)	,compile('bnf_classChar'))
-	})
-	describe('reg_classChar ::= /'+/[^ \\\/` `^-|$.*+?()[]{}] | \\./.source+'/ // возвращает символ',()=>{
-		it_compile(		'1'		,'1'					,compile('reg_classChar'))
-		it_compile(		' '		,' '					,compile('reg_classChar'))
-		it_err_compile(	'^'		,()=>err_classChar(0)	,compile('reg_classChar'))
-		it_err_compile(	'-'		,()=>err_classChar(0)	,compile('reg_classChar'))
-		it_compile(		'\\^'	,'^'					,compile('reg_classChar'))
-		it_compile(		'\\-'	,'-'					,compile('reg_classChar'))
-		it_err_compile(	''		,()=>err_classChar(0)	,compile('reg_classChar'))
-	})
-	describe('bnf_char ::= /'+/\\./.source+'/ // возвращает символ',()=>{
-		it_compile('\\1','1',compile('bnf_char'))
-		it_err_compile('1'	,()=>err_char(0),compile('bnf_char'))
-		it_err_compile('$'	,()=>err_char(0),compile('bnf_char'))
-		it_err_compile(''	,()=>err_char(0),compile('bnf_char'))
-	})
-	describe('reg_char ::='+/[^ \\\/` |$.*+?()[]{}`] | \\./.source+'\n--возвращает символ',()=>{
-		it_compile(		'1'		,'1'			,compile('reg_char'))
-		it_err_compile(	'$'		,()=>err_char(0),compile('reg_char'))
-		it_compile(		'\\$'	,'$'			,compile('reg_char'))
-		it_err_compile(	""		,()=>err_char(0),compile('reg_char'))
-	})
-	describe('quotedSequence ::='+/`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\``/.source+' (?#возвращает строку)',()=>{
-		it_compile(	/`qwer`/.source		,'qwer'			,compile('quotedSequence'))
-		it_compile(	/`qw\\er`/.source	,'qw\\er'		,compile('quotedSequence'))
-		it_compile(	/`qw\`er`/.source	,'qw`er'		,compile('quotedSequence'))
-		it_compile(	/`qw\\\`er`/.source	,'qw\\`er'		,compile('quotedSequence'))
-		it_err_compile(	""				,()=>err_qseq(0),compile('quotedSequence'))
-	})
-	describe('meta parser',()=>{
-		describe('isGood',function(){
-			it('sould be TRUE for: number 0',function(){
-				assert.equal(isGood(0),true);
-			})
-			it('sould be TRUE for: number 2',function(){
-				assert.equal(isGood(2),true);
-			})
-			it('sould be TRUE for: empty string',function(){
-				assert.equal(isGood(''),true);
-			})
-			it('sould be TRUE for: not empty string',function(){
-				assert.equal(isGood('123'),true);
-			})
-			it('sould be TRUE for: {}',function(){
-				assert.equal(isGood({}),true);
-			})
-			it('sould be TRUE for: {err:0}',function(){
-				assert.equal(isGood({err:0}),true);
-			})
-			it('sould be FALSE for: {err:1}',function(){
-				assert.equal(isGood({err:1}),false);
-			})
-			it('sould be FALSE for: {err:2}',function(){
-				assert.equal(isGood({err:2}),false);
-			})
-			it('sould be TRUE for: null',function(){
-				assert.equal(isGood(null),true);
-			})
-			it('sould be FALSE for: undefined',function(){
-				assert.equal(isGood(),false);
-			})
-		})
-		describe('notFatal',function(){
-			it('sould be TRUE for: number 0',function(){
-				assert.equal(isGood(0),true);
-			})
-			it('sould be TRUE for: number 2',function(){
-				assert.equal(isGood(2),true);
-			})
-			it('sould be TRUE for: empty string',function(){
-				assert.equal(isGood(''),true);
-			})
-			it('sould be TRUE for: not empty string',function(){
-				assert.equal(isGood('123'),true);
-			})
-			it('sould be TRUE for: {}',function(){
-				assert.equal(notFatal({}),true);
-			})
-			it('sould be TRUE for: {err:0}',function(){
-				assert.equal(notFatal({err:0}),true);
-			})
-			it('sould be TRUE for: {err:1}',function(){
-				assert.equal(notFatal({err:1}),true);
-			})
-			it('sould be FALSE for: {err:2}',function(){
-				assert.equal(notFatal({err:2}),false);
-			})
-			it('sould be TRUE for: null',function(){
-				assert.equal(isGood(null),true);
-			})
-			it('sould be FALSE for: undefined',function(){
-				assert.equal(notFatal(),false);
-			})
-		})
-	})
+	run_tests();
 	/*
 	describe('mocha',()=>{
 		it('test assertDeepDiff',()=>{
@@ -416,7 +192,7 @@
 		})
 	});
 	*/
-		mocha.run();
+	mocha.run();
 })()
 	</script>
 </body>
