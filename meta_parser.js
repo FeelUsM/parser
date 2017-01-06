@@ -325,6 +325,7 @@ function read_seq(str, pos, isFatal, patterns) {
 	return res.a;
 }
 function seq(isFatal/*(res//.a//,r//.res//,i,pos)*/, ...patterns) {
+	if(!isFatal.is_isFatal) throw new Error('вы забыли указать need в seq')
 	return new Pattern((str,pos)=>read_seq(str,pos,isFatal,patterns.map(pattern=>pattern.exec)));
 }
 
@@ -346,6 +347,7 @@ function need_all(res/*.a*/,r/*.res*/,i,pos) { // isFatal()
 
 	return false;
 }
+need_all.is_isFatal = true;
 // в случае ParseError у результата устанавливает .err=1 и .what = массиву ошибок ParseError
 function need_none(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 	if(!notFatal(r.res))
@@ -357,15 +359,16 @@ function need_none(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 	}
 	return false;
 }
+need_none.is_isFatal = true;
 function need(...indexes){
 	// резултат - после прочтения одного паттерна
 	// ответ - результат всего seq
 	if(indexes.length == 0)
 		// + ВСЕ одиночные результаты добавляет в ответ как в массив
 		throw 'непонятно, что включать в ответ';
-	if(indexes.length == 1)
+	if(indexes.length == 1) {
 		// + единственный нужный результат становится ответом
-		return function need_one(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
+		function need_one(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 			if(!notFatal(r.res))
 				return true;
 			if(!isGood(r.res)) {
@@ -381,9 +384,12 @@ function need(...indexes){
 			}
 			return false;
 		}
-	else
+		need_one.is_isFatal = true;
+		return need_one;
+	}
+	else {
 		// + добавляет результаты в заданные позиции ответа
-		return function need_indexes(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
+		function need_indexes(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
 			if(!notFatal(r.res))
 				return true;
 			if(!isGood(r.res)) {
@@ -400,6 +406,9 @@ function need(...indexes){
 			}
 			return false;
 		}
+		need_indexes.is_isFatal = true;
+		return need_indexes;
+	}
 }
 
 // в начале читает pattern, потом последовательность separated
@@ -476,6 +485,7 @@ function read_any(str, pos/*.x*/, isGood, patterns) {
 	return errs.a;
 }
 function any(isGood, ...patterns) {
+	if(!isGood.is_isGood) throw new Error('вы забыли указать (not)collect в any');
 	return new Pattern((str,pos)=>read_any(str,pos,isGood,patterns.map(pattern=>pattern.exec)));
 }
 //сначала надо указывать попытки удачного прочтения,
@@ -488,11 +498,13 @@ function collect(errs/*.a*/,r,i,pos/*.x*/){ // isGood
 	errs.a.why.push(r)//collect
 	return false;
 }
+collect.is_isGood = true;
 
 //ничего не собирает
 function notCollect(errs/*.a*/,r,i,pos/*.x*/){//isGood
 	return isGood(r);
 }
+notCollect.is_isGood = true;
 
 // #todo как понадобится - доделать
 function exc(pattern, except) {

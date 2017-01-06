@@ -31,8 +31,9 @@ function main(module, exports, require) {
 	}
 
 	function compile(fun) {
+		if(typeof fun === 'string') fun = global[fun];
 		function do_compile(pattern,obj) {
-			assertPrepareDeepEqual(global[fun].exec(pattern),obj);
+			assertPrepareDeepEqual(fun.exec(pattern),obj);
 		}
 		do_compile.toString = ()=>'assertPrepareDeepEqual('+fun+'.exec(pattern),obj);'
 		return do_compile;
@@ -59,10 +60,11 @@ function main(module, exports, require) {
 	}
 	exports.it_err_compile = it_err_compile;
 	function parse(fun) {
-		if(!fun) fun = 'reg_sequence'
+		if(!fun) fun = 'reg_sequence';
+		if(typeof fun === 'string') fun = global[fun];
 		function do_parse(pattern,str,res) {
 			var inres = {res:{}};
-			var funobj = global[fun].exec(pattern);
+			var funobj = fun.exec(pattern);
 			if(!funobj.fun)
 				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
 			assertDeepEqual(funobj.fun(str,{x:0},inres),true);
@@ -84,10 +86,11 @@ function main(module, exports, require) {
 	}
 	exports.it_parse = it_parse;
 	function err_parse(fun) {
-		if(!fun) fun = 'reg_sequence'
+		if(!fun) fun = 'reg_sequence';
+		if(typeof fun === 'string') fun = global[fun];
 		function do_parse(pattern,str,res) {
 			var inres = {res:{}};
-			var funobj = global[fun].exec(pattern);
+			var funobj = fun.exec(pattern);
 			if(!funobj.fun)
 				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
 			assertPrepareDeepEqual(funobj.fun(str,{x:0},inres),res);

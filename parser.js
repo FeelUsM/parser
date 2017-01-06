@@ -7,9 +7,8 @@ copyProps(require('meta_parser'),window);
 var test = require('parser_test_utils');
 
 /* todo
-добавить тесты в pre_code, проверить, отладить
-перенести тесты в code, проверить, отладить
 проверить тесты в modifier 
+убрать большинство exports
 начиная с reg_sequence привести код и тесты в соответствие с описанием
 добавить тесты про comment, ?`...`?<
 сделать интерфейс для одиночного безымянного паттерна, потестировать все (ошибки добавляем в тесты)
@@ -140,15 +139,15 @@ var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
 	}),
 	err_qseq
 );
-exports.quotedSequence = quotedSequence;
+//exports.quotedSequence = quotedSequence;
 test.add_test('/','quotedSequence',(path)=>{
 	describe('quotedSequence ::='+/`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\``/.source+
 			' (?#возвращает строку)',()=>{
-		it_compile(	/`qwer`/.source		,'qwer'			,compile('quotedSequence'))
-		it_compile(	/`qw\\er`/.source	,'qw\\er'		,compile('quotedSequence'))
-		it_compile(	/`qw\`er`/.source	,'qw`er'		,compile('quotedSequence'))
-		it_compile(	/`qw\\\`er`/.source	,'qw\\`er'		,compile('quotedSequence'))
-		it_err_compile(	""				,()=>err_qseq(0),compile('quotedSequence'))
+		it_compile(	/`qwer`/.source		,'qwer'			,compile(quotedSequence))
+		it_compile(	/`qw\\er`/.source	,'qw\\er'		,compile(quotedSequence))
+		it_compile(	/`qw\`er`/.source	,'qw`er'		,compile(quotedSequence))
+		it_compile(	/`qw\\\`er`/.source	,'qw\\`er'		,compile(quotedSequence))
+		it_err_compile(	""				,()=>err_qseq(0),compile(quotedSequence))
 	})
 })
 // ================================================================================================
@@ -174,13 +173,13 @@ var reg_char = rgx(/^[^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_char
 );
-exports.reg_char = reg_char;
+//exports.reg_char = reg_char;
 test.add_test('/','reg_char',(path)=>{
 	describe('reg_char ::='+/[^\\\/\``;|$.*+?()[]{}`] | \\./.source+' (?#возвращает символ) (?#здесь перечислены управляющие символы, остальные символы считаются обычными)',()=>{
-		it_compile(		'1'		,'1'			,compile('reg_char'))
-		it_err_compile(	'$'		,()=>err_char(0),compile('reg_char'))
-		it_compile(		'\\$'	,'$'			,compile('reg_char'))
-		it_err_compile(	""		,()=>err_char(0),compile('reg_char'))
+		it_compile(		'1'		,'1'			,compile(reg_char))
+		it_err_compile(	'$'		,()=>err_char(0),compile(reg_char))
+		it_compile(		'\\$'	,'$'			,compile(reg_char))
+		it_err_compile(	""		,()=>err_char(0),compile(reg_char))
 	})
 })
 // bnf_char :=\\.;
@@ -189,15 +188,15 @@ var bnf_char = rgx(/^\\(.)/).then(
 	m=>m[1],
 	err_char
 );
-exports.bnf_char = bnf_char;
+//exports.bnf_char = bnf_char;
 test.add_test('/','bnf_char',(path)=>{
 	describe('bnf_char ::= '+/\\./.source+' (?#возвращает символ) \
 (?#любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать)',
 	()=>{
-		it_compile('\\1','1',compile('bnf_char'))
-		it_err_compile('1'	,()=>err_char(0),compile('bnf_char'))
-		it_err_compile('$'	,()=>err_char(0),compile('bnf_char'))
-		it_err_compile(''	,()=>err_char(0),compile('bnf_char'))
+		it_compile    ('\\1','1'            ,compile(bnf_char))
+		it_err_compile('1'	,()=>err_char(0),compile(bnf_char))
+		it_err_compile('$'	,()=>err_char(0),compile(bnf_char))
+		it_err_compile(''	,()=>err_char(0),compile(bnf_char))
 	})
 })
 
@@ -210,17 +209,17 @@ var reg_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
-exports.reg_classChar = reg_classChar;
+//exports.reg_classChar = reg_classChar;
 test.add_test('/','reg_classChar',(path)=>{
 	describe('reg_classChar ::= ['+/^\\\/\`/.source+'`^-;|$.*+?()[]{}`] | '+/\\./.source+
 	' (?#возвращает символ) (?#к управляющим символам добавляется `^-`, пробелы разрешены)',()=>{
-		it_compile(		'1'		,'1'					,compile('reg_classChar'))
-		it_compile(		' '		,' '					,compile('reg_classChar'))
-		it_err_compile(	'^'		,()=>err_classChar(0)	,compile('reg_classChar'))
-		it_err_compile(	'-'		,()=>err_classChar(0)	,compile('reg_classChar'))
-		it_compile(		'\\^'	,'^'					,compile('reg_classChar'))
-		it_compile(		'\\-'	,'-'					,compile('reg_classChar'))
-		it_err_compile(	''		,()=>err_classChar(0)	,compile('reg_classChar'))
+		it_compile(		'1'		,'1'					,compile(reg_classChar))
+		it_compile(		' '		,' '					,compile(reg_classChar))
+		it_err_compile(	'^'		,()=>err_classChar(0)	,compile(reg_classChar))
+		it_err_compile(	'-'		,()=>err_classChar(0)	,compile(reg_classChar))
+		it_compile(		'\\^'	,'^'					,compile(reg_classChar))
+		it_compile(		'\\-'	,'-'					,compile(reg_classChar))
+		it_err_compile(	''		,()=>err_classChar(0)	,compile(reg_classChar))
 	})
 })
 //	bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.
@@ -229,17 +228,17 @@ var bnf_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./).then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
-exports.bnf_classChar = bnf_classChar;
+//exports.bnf_classChar = bnf_classChar;
 test.add_test('/','bnf_classChar',(path)=>{
 	describe('bnf_classChar ::= ['+/^\\\/\`/.source+'`^-;|$.*+?()[]{} `] | '+/\\./.source+
 	' (?#возвращает символ) (?#к управляющим символам добавляется `^-`, пробелы запрещены)',()=>{
-		it_compile(		'1','1',compile('bnf_classChar'))
-		it_err_compile(	' '		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_err_compile(	'^'		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_err_compile(	'-'		,()=>err_classChar(0)	,compile('bnf_classChar'))
-		it_compile(		'\\^'	,'^'					,compile('bnf_classChar'))
-		it_compile(		'\\-'	,'-'					,compile('bnf_classChar'))
-		it_err_compile(	''		,()=>err_classChar(0)	,compile('bnf_classChar'))
+		it_compile(		'1'     ,'1'                    ,compile(bnf_classChar))
+		it_err_compile(	' '		,()=>err_classChar(0)	,compile(bnf_classChar))
+		it_err_compile(	'^'		,()=>err_classChar(0)	,compile(bnf_classChar))
+		it_err_compile(	'-'		,()=>err_classChar(0)	,compile(bnf_classChar))
+		it_compile(		'\\^'	,'^'					,compile(bnf_classChar))
+		it_compile(		'\\-'	,'-'					,compile(bnf_classChar))
+		it_err_compile(	''		,()=>err_classChar(0)	,compile(bnf_classChar))
 	})
 })
 
@@ -268,36 +267,36 @@ var reg_class = any(collect,
 	s=>new RegExp(s),
 	err_inClass
 );
-exports.reg_class = reg_class;
+//exports.reg_class = reg_class;
 test.add_test('/','reg_class',(path)=>{
 	describe('reg_class ::= `.`|`[``^`? ($reg_classChar(`-`$reg_classChar)? |$quotedSequence )*`]`'
 	+' (?#возвращает регексп (без галки вначале))',()=>{
 		it_err_compile(	''			,()=>err_filtered(0,[err_txt(0,'.'),err_txt(0,'[')]),
-			compile('reg_class'));
+			compile(reg_class));
 		it_compile(		'.'			,/./												,
-			compile('reg_class'))
+			compile(reg_class))
 		it_err_compile(	'['			,()=>err_filtered(1,[
 			err_txt(1,'^'),err_classChar(1),err_qseq(1),err_txt(1,']'),err_txt(0,'.')])	,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[]'		,/[]/												,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[^]'		,/[^]/												,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[`abc`]'	,/[abc]/											,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[`a^$`]'	,/[a\^\$]/											,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[abc]'		,/[abc]/											,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[a-z]'		,/[a-z]/											,
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[\\$-\\^]'	,/[\$-\^]/											,
-			compile('reg_class'))
+			compile(reg_class))
 		it_err_compile(	'[a-]'		,()=>err_filtered(3,[
 			err_classChar(3),err_classChar(2),err_qseq(2),err_txt(2,']'),err_txt(0,'.')]),
-			compile('reg_class'))
+			compile(reg_class))
 		it_compile(		'[a\\-]'	,/[a\-]/											,
-			compile('reg_class'))
+			compile(reg_class))
 	})
 })
 // bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs 
@@ -320,11 +319,11 @@ var bnf_class = any(collect,
 	s=>new RegExp(s),
 	err_inClass
 );
-exports.bnf_class = bnf_class;
+//exports.bnf_class = bnf_class;
 test.add_test('/','bnf_class',(path)=>{
 	describe('bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs \
 |$quotedSequence $spcs)*`]` (?#возвращает регексп (без галки вначале))',()=>{
-		it_compile('[ \\a \\b \\c ]',/[abc]/,compile('bnf_class'))
+		it_compile('[ \\a \\b \\c ]',/[abc]/,compile(bnf_class))
 	});
 })
 
@@ -394,16 +393,16 @@ var quantifier = any(collect,
 		),
 	spcs,txt('}'))
 ).then(0,err_quant);
-exports.quantifier = quantifier;
+//exports.quantifier = quantifier;
 test.add_test('/','quantifier',(path)=>{
 	describe('quantifier ::= [`*+?`] | `{`$spcs(`,`$spcs$num|$num($spcs`,`$spcs$num?)?)$spcs`}`\
  (?#пока только энергичные)',()=>{
-		it_compile('+'		,{min:1,max:Infinity}	,compile('quantifier'))
-		it_compile('{3,5}'	,{min:3,max:5}			,compile('quantifier'))
-		it_compile('{3}'	,{min:3,max:3}			,compile('quantifier'))
-		it_compile('{3,}'	,{min:3,max:Infinity}	,compile('quantifier'))
-		it_compile('{,3}'	,{min:0,max:3}			,compile('quantifier'))
-		it_compile('{ 3 , 5 }',{min:3,max:5}		,compile('quantifier'))
+		it_compile('+'		,{min:1,max:Infinity}	,compile(quantifier))
+		it_compile('{3,5}'	,{min:3,max:5}			,compile(quantifier))
+		it_compile('{3}'	,{min:3,max:3}			,compile(quantifier))
+		it_compile('{3,}'	,{min:3,max:Infinity}	,compile(quantifier))
+		it_compile('{,3}'	,{min:0,max:3}			,compile(quantifier))
+		it_compile('{ 3 , 5 }',{min:3,max:5}		,compile(quantifier))
 	})
 })
 // ================================================================================================
@@ -455,12 +454,12 @@ var string = any(collect,
 	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
 	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
 ).then(0, err_string);
-exports.string = string;
+//exports.string = string;
 test.add_test('/','string',(path)=>{
 	describe('string ::=\
 `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`\
 (?#возвращает вместе с кавычками)',()=>{
-		it_compile('"{{{}{}}}}}}{}{}}{"','"{{{}{}}}}}}{}{}}{"',compile('string'))
+		it_compile('"{{{}{}}}}}}{}{}}{"','"{{{}{}}}}}}{}{}}{"',compile(string))
 	})
 })
 
@@ -476,56 +475,139 @@ object.pattern = seq( need_all, txt('{'),
 	),star).then(merger),
 	txt('}')
 ).then(merger,err_obj);
-exports.object = object;
+//exports.object = object;
 test.add_test('/','object',(path)=>{
 	describe('object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}`\
 (?#возвращает ввиде неразобранной строки)',()=>{
 		it_compile(
 			'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',
-			'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',compile('object'))
+			'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',compile(object))
 	})
 })
 
-// code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
+// pre_code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
 // (?#`error` - обработчик ошибки)
 // (?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<);
 var pre_code = seq(need(0,1),
 	any(collect,
 		seq(need(1),txt('`'),
-			rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
+			rgx(/^[^`]*/).then(m=>{
+				if(/^\s*\{/.test(m[0]) && /\}\s*$/.test(m[0]))
+					return {type:'code',data:m[0]}
+				else
+					return {type:'expr',data:m[0]}
+			}),
 			txt('`')),
-		object
+		object.then(s=>({type:'obj',data:s}))
 	),
-	opt(any(txt('error'),txt('?')),''),
+	opt(any(collect,txt('error'),txt('?')),''),
 	txt('<')
-).then(([o,mod])=>{
+).then(([o,mod],x)=>{
+	if(mod=='?')
+		if(o.type=='code') return new ParseError(x,
+			'код не может быть значением по умолчанию (только выражением или объектом)');
+		else
+			o.data = 'arg.length==1?arg[0]:'+o.data;
+	if(o.type=='expr' || o.type=='obj')
+		o.data = 'return '+o.data;
+	o.type = 'postscript';
 	o.error = mod==='error';
-	if(mod==='?')
-		o.data = 'arg.length==1?arg[0]:'+o.data;
-	if(o.data[0]==='{')
-		o.data = '{return '+o.data+'}'
 	return o;
 });
+//exports.pre_code = pre_code;
+test.add_test('/','pre_code',(path)=>{
+	describe('pre_code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик) \
+(?#`error` - обработчик ошибки) \
+(?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<);',()=>{
+		it_compile('{obj:5}<'       ,{type:"postscript",data:"return {obj:5}",
+			error:false},compile(pre_code));
+		it_compile('{obj:5}error<'  ,{type:"postscript",data:"return {obj:5}",
+			error:true},compile(pre_code));
+		it_compile('{obj:5}?<'      ,{type:"postscript",data:"return arg.length==1?arg[0]:{obj:5}",
+			error:false},compile(pre_code));
+			
+		it_compile('`arg`<'         ,{type:"postscript",data:"return arg",
+			error:false},compile(pre_code));
+		it_compile('`arg`error<'    ,{type:"postscript",data:"return arg",
+			error:true},compile(pre_code));
+		it_compile('`arg`?<'        ,{type:"postscript",data:"return arg.length==1?arg[0]:arg",
+			error:false},compile(pre_code));
 
+		it_compile('`{return arg}`<'     ,{type:"postscript",data:"{return arg}",
+			error:false},compile(pre_code));
+		it_compile('`{return arg}`error<',{type:"postscript",data:"{return arg}",
+			error:true},compile(pre_code));
+		it_err_compile('`{return arg}`?<',()=>new ParseError(0,
+			'код не может быть значением по умолчанию (только выражением или объектом)'),
+			compile(pre_code));
+	})
+})
+
+// code ::= $pre_code (?# строка превращается в функцию)
 var global_modifier_object = {}; 
 	// todo пока глобальный, но потом будет инициализироваться перед парсингом паттерна
-function code_to_fun(code) {
-	if(/^\s*\{/.test(code) && /\}\s*$/.test(code))
-		return (new Function('arg','pos',code)).bind(global_modifier_object);
-	else
-		return (new Function('arg','pos','return '+code)).bind(global_modifier_object);
-}
-var code_to_funer = (m,x)=>{ 
-	if(m.type==='postscript') 
-		try {
-			m.data = code_to_fun(m.data); 
-		}
-		catch(err) {
-			return new ParseError(x,'синтаксическая ошибка в обработчике',err);
-		}
+var code = pre_code.then((m,x)=>{ 
+	try {
+		m.data = (new Function('arg','pos',m.data)).bind(global_modifier_object); 
+	}
+	catch(err) {
+		return new ParseError(x,'синтаксическая ошибка в обработчике',err);
+	}
 	return m
-};
-var code = precode.then()
+})
+test.add_test('/','code',(path)=>{
+	describe('code ::= $pre_code (?# строка превращается в функцию)\
+ (?#возвращает, как и pre_code,\
+ {type:"postscript",data:function(arg,pos){...}/"code",error:true/false})',()=>{
+		function it_compile_fun(pattern,obj,arg,res,comment='') {
+			it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj)+'   |.data(): '+
+				JSON.stringify(arg)+' --> '+JSON.stringify(res),
+				()=>{
+					var prpat = code.exec(pattern); // prepared pattern
+					assertPrepareDeepEqual(prpat,obj);
+					assertPrepareDeepEqual(prpat.data(arg),res);
+				}
+			);
+		}
+		it_compile_fun('`"hello world"`error<',
+			{type:"postscript",data:function(arg,pos){ return "hello world";},error:true},
+			'',"hello world",'обработчик ошибки: ')
+		it_compile_fun('`"hello world"`<',
+			{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
+			'',"hello world",'если в `` нет {}, то это помещается в {return ...}')
+		it_compile_fun('`{return "hello world"}`<',
+			{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
+			'',"hello world",'если в `` есть {}, то оно остается неизменным')
+		it_err_compile('`{return return}`<',()=>new ParseError(0,
+				"синтаксическая ошибка в обработчике",
+				new SyntaxError("Unexpected token return")
+			),compile(code),'синтаксическая ошибка в обработчике: '
+		)
+		describe('complicated object',()=>{
+			it_compile_fun('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
+				{	type:"postscript",
+					data:function(arg,pos){
+						return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+					},
+					error:false
+				},
+				'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+			)
+			it_compile_fun('{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
+				{	type:"postscript",
+					data:function(arg,pos){
+						return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+					},
+					error:true
+				},
+				'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+			)
+			it_compile_fun('`"hello world"`?<',
+				{type:"postscript",data:function(arg,pos){ return arg.length==1?arg[0]:"hello world";},error:false},
+				[],"hello world")
+		})
+	})
+})
 
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
@@ -533,7 +615,7 @@ var modifier = seq(need(1), txt('?'), any(collect,
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
-)).then(code_to_funer,(x,e)=>err_in(x,'modifier',e));
+)).then(0,(x,e)=>err_in(x,'modifier',e));
 exports.modifier = modifier;
 var fake_modifier = seq(need_none, txt('?'), any(collect,
 	txt('!'),
@@ -544,7 +626,7 @@ var fake_modifier = seq(need_none, txt('?'), any(collect,
 				txt('`')),
 			object
 		),
-		opt(any(txt('error'),txt('?')),''),
+		opt(any(collect,txt('error'),txt('?')),''),
 		txt('<')
 	),
 	seq(need_none,identifier,txt('->')),   // на будущее
@@ -555,72 +637,13 @@ exports.fake_modifier = fake_modifier;
 test.add_test('/','modifier',(path)=>{
 	describe('modifier ::= `?`\
 (	`!` (?#отрицание)\
-|	(\`[^\`]*\`|$object) `error`? `<` (?#обработчик)\
-|	(\`[^\`]*\`|$object) `?<` (?#значение по умолчанию:\
-								?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)\
+|	$code (?#обработчик)\
 |	$identifier`->` (?#back_pattern)\
 |	$identifier?`=` (?#имя последовательности)\
 |	`toString:` (?#директива, преобразующая объектную последовательность в строковую)\
 );',()=>{
 		describe('(?#отрицание) `!`',()=>{
 			it_compile('?!',{type:"not"},compile('modifier'))
-		})
-		var cnt = 0;
-		function it_compile_fun(pattern,obj,arg,res,comment='') {
-			it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj)+'   |.data(): '+
-				JSON.stringify(arg)+' --> '+JSON.stringify(res),
-				()=>{
-					if(++cnt==6)
-						console.log(pattern)
-					var prpat = modifier.exec(pattern); // prepared pattern
-					assertPrepareDeepEqual(prpat,obj);
-					assertPrepareDeepEqual(prpat.data(arg),res);
-				}
-			);
-		}
-		describe('(?#обработчик) '+/(\`[^\`]*\`|$object)/.source+' `error`? `<`'
-				,()=>{
-			it_compile_fun('?`"hello world"`error<',
-				{type:"postscript",data:function(arg,pos){ return "hello world";},error:true},
-				'',"hello world",'обработчик ошибки: ')
-			it_compile_fun('?`"hello world"`<',
-				{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
-				'',"hello world",'если в `` нет {}, то это помещается в {return ...}')
-			it_compile_fun('?`{return "hello world"}`<',
-				{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
-				'',"hello world",'если в `` есть {}, то оно остается неизменным')
-			it_err_compile('?`{return return}`<',()=>new ParseError(0,
-					"синтаксическая ошибка в обработчике",
-					new SyntaxError("Unexpected token return")
-				),'modifier','синтаксическая ошибка в обработчике: '
-			)
-			describe('complicated object',()=>{
-				it_compile_fun('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
-					{	type:"postscript",
-						data:function(arg,pos){
-							return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
-						},
-						error:false
-					},
-					'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
-				)
-				it_compile_fun('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
-					{	type:"postscript",
-						data:function(arg,pos){
-							return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
-						},
-						error:true
-					},
-					'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
-				)
-			})
-		})
-		describe('(?#значение по умолчанию: `smth`?< эквивалентно\
- ?`arg.length==1?arg[0]:smth`<)   (\`[^\`]*\`|$object) `?<` ',()=>{
-			it_compile_fun('?`"hello world"`?<',
-				{type:"postscript",data:function(arg,pos){ return arg.length==1?arg[0]:"hello world";},error:false},
-				[],"hello world")
-			
 		})
 		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
 			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile('modifier'))
