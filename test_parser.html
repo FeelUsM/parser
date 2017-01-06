@@ -40,7 +40,7 @@
 	copyProps(require('parser_test_utils'),window);
 
 // ===============================================================================
-	describe('complex tests for one pattern',()=>{
+	_describe('complex tests for one pattern',()=>{
 		describe('objects',()=>{
 			it_parse('?=a(?=bc)d'		,'abcd','bc','reg_sequence')
 			it_parse('a(?y=bc)d'	,'abcd',{y:"bc"},parse('reg_sequence'));
@@ -66,7 +66,7 @@
 		})
 		it_parse("ab(xxx)cd",'abxxxcd','abxxxcd',parse('reg_sequence'))
 	})
-	describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
+	_describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
 		describe('script feature',()=>{
 			it_parse(	'?`{throw {readed:arg}}`<abc'	,'abc',undefined,'reg_sequence','за то в набор складывает') // #todo err
 			it_parse(	'?`{return {readed:arg}}`<abc'	,'abc',{readed:"abc"},parse('reg_sequence'))
@@ -109,52 +109,6 @@
 			it_err_parse('?!abc','abc',()=>(err_not_fail(0,'безымянная последовательность')))
 		})
 		it_parse("abc",'abc','abc',parse('reg_sequence'));
-	})
-	describe('modifier ::= "`?` ( `!` | ( \\` ([^\\`])* \\` | `\\`{` ([^\\`])* `}\\`` | object )`<` | identifier`->`)" ; namedModifier ::= "modifier | `?`identifier?`=`"',()=>{
-		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
-			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile('modifier'))
-		})
-		describe('negate feature',()=>{
-			it_compile('?!',{type:"not"},compile('modifier'))
-		})
-		describe('script feature: object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}` ; string ::= `"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`',()=>{
-			it_compile('?`"hello world"`error<',
-				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:true},
-				compile('modifier'))
-			it_compile('?`"hello world"`<',
-				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:false},
-				compile('modifier'))
-			it_compile('?`{return "hello world"}`<',
-				{type:"postscript",data:function(arg,pos){ return '"hello world"';},error:false},
-				compile('modifier'))
-			describe('complicated object',()=>{
-				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
-					{	type:"postscript",
-						data:function(arg,pos){return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}},
-						error:false
-					},
-					compile('modifier')
-				)
-				it_compile('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
-					{	type:"postscript",
-						data:function(arg,pos){return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}},
-						error:true
-					},
-					compile('modifier')
-				)
-				describe('object, возвращает ввиде неразобранной строки',()=>{
-					it_compile(
-						'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',
-						'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',compile('object'))
-				})
-				describe('string, возвращает вместе с кавычками',()=>{
-					it_compile('"{{{}{}}}}}}{}{}}{"','"{{{}{}}}}}}{}{}}{"',compile('string'))
-				})
-			})
-		})
-		describe('return name feture',()=>{
-			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile('modifier'))
-		})
 	})
 	run_tests();
 	/*

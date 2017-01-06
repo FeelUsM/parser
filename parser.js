@@ -7,8 +7,11 @@ copyProps(require('meta_parser'),window);
 var test = require('parser_test_utils');
 
 /* todo
-начиная с modifier привести код и тесты в соответствие с описанием
-добавить тесты про comment, ?`...`?<, синтаксические ошибки в обработчиках
+добавить тесты в pre_code, проверить, отладить
+перенести тесты в code, проверить, отладить
+проверить тесты в modifier 
+начиная с reg_sequence привести код и тесты в соответствие с описанием
+добавить тесты про comment, ?`...`?<
 сделать интерфейс для одиночного безымянного паттерна, потестировать все (ошибки добавляем в тесты)
 сделать expr, main и еще потестировать
 npm, статья
@@ -55,21 +58,20 @@ string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
 object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
 modifier ::= `?`
 (	`!` (?#отрицание)
-|	(\`[^\`]*\`|$object) `error`? `<` (?#обработчик)
-|	(\`[^\`]*\`|$object) `?<` (?# ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)
+|	(\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
+(?#`error` - обработчик ошибки)
+(?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)
 |	$identifier`->` (?#back_pattern)
 |	$identifier?`=` (?#имя последовательности)
 |	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
 );
 fake_modifier ::= `?`
 (	`!`
-|	(\`[^\`]*\`|$object) `error`? `<`
-|	(\`[^\`]*\`|$object) `?<`
+|	(\`[^\`]*\`|$object) (`error`|`?`)? `<`
 |	$identifier`->`
 |	$identifier?`=`
 |	`toString:`
 );
-comment ::= `(?#` ($fake_modifier* `*`)?     $fake_reg_alternatives       `)` $quantifier? ;
 
 reg_sequence ::= $modifier* ($link |
 (	    $reg_symbol $quantifier?
@@ -408,18 +410,20 @@ test.add_test('/','quantifier',(path)=>{
 /* string object modifier fake-modifier comment
 string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
 object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
+pre_code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
+(?#`error` - обработчик ошибки)
+(?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<);
+code ::= $pre_code (?# строка превращается в функцию)
 modifier ::= `?`
 (	`!` (?#отрицание)
-|	(\`[^\`]*\`|$object) `error`? `<` (?#обработчик)
-|	(\`[^\`]*\`|$object) `?<` (?# ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)
+|	$code
 |	$identifier`->` (?#back_pattern)
 |	$identifier?`=` (?#имя последовательности)
 |	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
 );
 fake_modifier ::= `?`
 (	`!`
-|	(\`[^\`]*\`|$object) `error`? `<`
-|	(\`[^\`]*\`|$object) `?<`
+|	(\`[^\`]*\`|$object) (`error`|`?`)? `<`
 |	$identifier`->`
 |	$identifier?`=`
 |	`toString:`
@@ -444,6 +448,65 @@ error - означает, что обработчик вызовется для 
 	todo: сделать для каждого объекта свой
 	а результат становится undefined, а если это обработка ошибки, то она не меняется
 */
+// string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
+var err_string = (x)=>new FatalError(x,'не могу прочитать строку js');
+exports.err_string = err_string;
+var string = any(collect,
+	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
+	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
+).then(0, err_string);
+exports.string = string;
+test.add_test('/','string',(path)=>{
+	describe('string ::=\
+`"`([^\\"\\\\]|`\\\\\\"`|`\\\\\\\\`)*`"`|`\'`([^\\\'\\\\]|`\\\\\\\'`|`\\\\\\\\`)*`\'`\
+(?#возвращает вместе с кавычками)',()=>{
+		it_compile('"{{{}{}}}}}}{}{}}{"','"{{{}{}}}}}}{}{}}{"',compile('string'))
+	})
+})
+
+// object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
+var err_obj = (x)=>new FatalError(x,'не могу прочитать объект js');
+exports.err_obj = err_obj;
+var object = new Forward();
+object.pattern = seq( need_all, txt('{'),
+	rep(any(collect,
+		rgx(/^[^'"\{\}]/).then(m=>m[0]),
+		string,
+		object
+	),star).then(merger),
+	txt('}')
+).then(merger,err_obj);
+exports.object = object;
+test.add_test('/','object',(path)=>{
+	describe('object ::= `{`([^\\\'\\"\\{\\}]|string|object)*`}`\
+(?#возвращает ввиде неразобранной строки)',()=>{
+		it_compile(
+			'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',
+			'{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}',compile('object'))
+	})
+})
+
+// code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
+// (?#`error` - обработчик ошибки)
+// (?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<);
+var pre_code = seq(need(0,1),
+	any(collect,
+		seq(need(1),txt('`'),
+			rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
+			txt('`')),
+		object
+	),
+	opt(any(txt('error'),txt('?')),''),
+	txt('<')
+).then(([o,mod])=>{
+	o.error = mod==='error';
+	if(mod==='?')
+		o.data = 'arg.length==1?arg[0]:'+o.data;
+	if(o.data[0]==='{')
+		o.data = '{return '+o.data+'}'
+	return o;
+});
+
 var global_modifier_object = {}; 
 	// todo пока глобальный, но потом будет инициализироваться перед парсингом паттерна
 function code_to_fun(code) {
@@ -462,46 +525,11 @@ var code_to_funer = (m,x)=>{
 		}
 	return m
 };
-var err_string = (x)=>new FatalError(x,'не могу прочитать строку js');
-exports.err_string = err_string;
-var string = any(collect,
-	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
-	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
-).then(0, err_string);
-exports.string = string;
-var err_obj = (x)=>new FatalError(x,'не могу прочитать объект js');
-exports.err_obj = err_obj;
-var object = new Forward();
-object.pattern = seq( need_all, txt('{'),
-	rep(any(collect,
-		rgx(/^[^'"\{\}]/).then(m=>m[0]),
-		string,
-		object
-	),star).then(merger),
-	txt('}')
-).then(merger,err_obj);
-exports.object = object;
+var code = precode.then()
+
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
-	seq(need(0,1),
-		any(collect,
-			seq(need(1),txt('`'),
-				rgx(/^[^`]*/).then(m=>({type:'postscript',data:m[0]})),
-				txt('`')),
-			object.then(s=>({type:'postscript',data:'{return '+s+'}'}))
-		),
-		opt(txt('error')).then(s=>s==='error'),
-		txt('<')
-	).then(([o,e])=>{o.error = e; return o;}),
-	seq(need(0),
-		any(collect,
-			seq(need(1),txt('`'),
-				rgx(/^[^`]*/).then(m=>({type:'postscript',data:'arg.length==1?arg[0]:'+m[0]})),
-				txt('`')),
-			object.then(s=>({type:'postscript',data:'{return arg.length==1?arg[0]:'+s+'}'}))
-		),
-		txt('?<')
-	).then(([o,e])=>{o.error = e; return o;}),
+	code,
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
@@ -516,32 +544,102 @@ var fake_modifier = seq(need_none, txt('?'), any(collect,
 				txt('`')),
 			object
 		),
-		opt(txt('error')),
+		opt(any(txt('error'),txt('?')),''),
 		txt('<')
-	),
-	seq(need_none,
-		any(collect,
-			seq(need_none,txt('`'),
-				rgx(/^[^`]*/),
-				txt('`')),
-			object
-		),
-		txt('?<')
 	),
 	seq(need_none,identifier,txt('->')),   // на будущее
 	seq(need_none,opt(identifier,''),txt('=')),
 	txt('toString:')
 )).then(0,(x,e)=>err_in(x,'fake_modifier',e));
 exports.fake_modifier = fake_modifier;
+test.add_test('/','modifier',(path)=>{
+	describe('modifier ::= `?`\
+(	`!` (?#отрицание)\
+|	(\`[^\`]*\`|$object) `error`? `<` (?#обработчик)\
+|	(\`[^\`]*\`|$object) `?<` (?#значение по умолчанию:\
+								?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<)\
+|	$identifier`->` (?#back_pattern)\
+|	$identifier?`=` (?#имя последовательности)\
+|	`toString:` (?#директива, преобразующая объектную последовательность в строковую)\
+);',()=>{
+		describe('(?#отрицание) `!`',()=>{
+			it_compile('?!',{type:"not"},compile('modifier'))
+		})
+		var cnt = 0;
+		function it_compile_fun(pattern,obj,arg,res,comment='') {
+			it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj)+'   |.data(): '+
+				JSON.stringify(arg)+' --> '+JSON.stringify(res),
+				()=>{
+					if(++cnt==6)
+						console.log(pattern)
+					var prpat = modifier.exec(pattern); // prepared pattern
+					assertPrepareDeepEqual(prpat,obj);
+					assertPrepareDeepEqual(prpat.data(arg),res);
+				}
+			);
+		}
+		describe('(?#обработчик) '+/(\`[^\`]*\`|$object)/.source+' `error`? `<`'
+				,()=>{
+			it_compile_fun('?`"hello world"`error<',
+				{type:"postscript",data:function(arg,pos){ return "hello world";},error:true},
+				'',"hello world",'обработчик ошибки: ')
+			it_compile_fun('?`"hello world"`<',
+				{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
+				'',"hello world",'если в `` нет {}, то это помещается в {return ...}')
+			it_compile_fun('?`{return "hello world"}`<',
+				{type:"postscript",data:function(arg,pos){ return "hello world";},error:false},
+				'',"hello world",'если в `` есть {}, то оно остается неизменным')
+			it_err_compile('?`{return return}`<',()=>new ParseError(0,
+					"синтаксическая ошибка в обработчике",
+					new SyntaxError("Unexpected token return")
+				),'modifier','синтаксическая ошибка в обработчике: '
+			)
+			describe('complicated object',()=>{
+				it_compile_fun('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}<',
+					{	type:"postscript",
+						data:function(arg,pos){
+							return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+						},
+						error:false
+					},
+					'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+				)
+				it_compile_fun('?{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}error<',
+					{	type:"postscript",
+						data:function(arg,pos){
+							return {x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+						},
+						error:true
+					},
+					'',{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}
+				)
+			})
+		})
+		describe('(?#значение по умолчанию: `smth`?< эквивалентно\
+ ?`arg.length==1?arg[0]:smth`<)   (\`[^\`]*\`|$object) `?<` ',()=>{
+			it_compile_fun('?`"hello world"`?<',
+				{type:"postscript",data:function(arg,pos){ return arg.length==1?arg[0]:"hello world";},error:false},
+				[],"hello world")
+			
+		})
+		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
+			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile('modifier'))
+		})
+		describe('return name feture',()=>{
+			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile('modifier'))
+		})
+	})
+})
 
 var fake_reg_alternatives = new Forward;
 exports.fake_reg_alternatives = fake_reg_alternatives;
 var comment = seq(need_none,
-	txt('(?#'),opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),opt(quantifier)
+	txt('(?#'),	opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),
+	opt(quantifier)
 ).then(0,(x,e)=>err_in(x,'comment',e));
 exports.comment = comment;
 
-// ====================================================================================================
+// ================================================================================================
 /* reg-sequence fake-reg-sequence bnf-sequence
 reg_sequence ::= $modifier* ($link |
 (	    $reg_symbol $quantifier?
