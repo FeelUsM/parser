@@ -34,7 +34,7 @@ var tail_error = []; // GLOBAL VARIABLE for tail error
 
 // is result
 function isGood(r){
-	return (typeof r === 'object' && r!==null) ? !r.err : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? r.err!=1 && r.err!=2 : r!==undefined ;
 }
 test.add_test('/meta parser','isGood',(path)=>{
 	describe(path,function(){
@@ -62,6 +62,9 @@ test.add_test('/meta parser','isGood',(path)=>{
 		it('sould be FALSE for: {err:2}',function(){
 			assert.equal(isGood({err:2}),false);
 		})
+		it('sould be TRUE for: {err:"str"}',function(){
+			assert.equal(isGood({err:"str"}),true);
+		})
 		it('sould be TRUE for: null',function(){
 			assert.equal(isGood(null),true);
 		})
@@ -73,7 +76,7 @@ test.add_test('/meta parser','isGood',(path)=>{
 
 // is result or ParseError
 function notFatal(r){
-	return (typeof r === 'object' && r!==null) ? r.err===undefined || r.err<2 : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? r.err!=2 : r!==undefined ;
 }
 function isFatal(r) { return !notFatal(r); }
 test.add_test('/meta parser','notFatal',(path)=>{
@@ -101,6 +104,9 @@ test.add_test('/meta parser','notFatal',(path)=>{
 		})
 		it('sould be FALSE for: {err:2}',function(){
 			assert.equal(notFatal({err:2}),false);
+		})
+		it('sould be TRUE for: {err:"str"}',function(){
+			assert.equal(isGood({err:"str"}),true);
 		})
 		it('sould be TRUE for: null',function(){
 			assert.equal(notFatal(null),true);
@@ -271,7 +277,7 @@ function txt(text) {
 	return new Pattern((str,pos)=>read_txt(str,pos,text));
 }
 
-var err_rgx = (x,text)=>new FatalError(x,'ожидалось /'+text+'/');
+var err_rgx = (x,text)=>new FatalError(x,'text not match regexp /'+text+'/');
 exports.err_rgx = err_rgx;
 
 // если regexp читается (не забываем в начале ставить ^)

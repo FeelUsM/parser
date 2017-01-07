@@ -7,10 +7,36 @@ copyProps(require('meta_parser'),window);
 var test = require('parser_test_utils');
 
 /* todo
-проверить тесты в modifier 
-убрать большинство exports
-начиная с reg_sequence привести код и тесты в соответствие с описанием
-добавить тесты про comment, ?`...`?<
+закодить объектные и toString - тесты
+распределить старые тесты по имеющимся рубрикам и в фишка code
+задать расположение фишки link & back_pattern, и немного позаполнять
+сделать тесты для синтаксиса:
+reg_sequence ::= $modifier* ($link |
+(	    $reg_symbol $quantifier?
+| 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+fake_reg_sequence ::= $fake_modifier* ($link |
+(	    $reg_symbol $quantifier? (?#пробелы в reg_class и quantifier допустимы)
+| 	`(`   ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+bnf_sequence ::= $modifier* ($spcs $link |
+($spcs(	$bnf_symbol $quantifier?
+| 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
+|	$comment
+))*);
+reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
+bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
+comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
+	внутренний синтаксис reg_sequence
+	внутренний синтаксис bnf_sequence
+	внутренний синтаксис reg_alternatives
+	внутренний синтаксис bnf_alternatives
+	внутренний синтаксис comment
+	синтаксис reg_sequence bnf_sequence reg_alternatives bnf_alternatives comment
+
 сделать интерфейс для одиночного безымянного паттерна, потестировать все (ошибки добавляем в тесты)
 сделать expr, main и еще потестировать
 npm, статья
@@ -72,6 +98,8 @@ fake_modifier ::= `?`
 |	`toString:`
 );
 
+(?#fake_... - синтаксис такой же как у настоящего, только не происходит обработка)
+comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
 reg_sequence ::= $modifier* ($link |
 (	    $reg_symbol $quantifier?
 | 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
@@ -87,8 +115,6 @@ bnf_sequence ::= $modifier* ($spcs $link |
 | 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
 |	$comment
 ))*);
-(?#fake_... - синтаксис такой же как у настоящего, только не происходит обработка)
-
 reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
 fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
 bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
@@ -113,7 +139,7 @@ num :=[0-9]+;
 identifier :=[a-zA-Z_][a-zA-Z_0-9]*;
 quotedSequence ::=`\`` ( [^\`\\] | `\\\`` | `\\\\`)* `\`` ;
 */
-
+//{
 var err_spc = (x)=>new FatalError(x,'ожидался пробельный символ');
 exports.err_spc = err_spc;
 var spc = rgx(/^[\ \r\n\t\v\f]/).then(0,err_spc);
@@ -150,6 +176,7 @@ test.add_test('/','quotedSequence',(path)=>{
 		it_err_compile(	""				,()=>err_qseq(0),compile(quotedSequence))
 	})
 })
+//}
 // ================================================================================================
 /* reg-char bnf-char reg-classChar bnf-classChar reg-class bnf-class
 reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.;
@@ -163,7 +190,7 @@ bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.
 reg_class ::= `.` | `[``^`?       ($reg_classChar(`-`$reg_classChar)?       |$quotedSequence      )*`]` ;
 bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs |$quotedSequence $spcs)*`]` ;
 */
-
+//{
 // возвращает символ
 var err_char = (x)=>new FatalError(x,'ожидался символ');
 // reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.;
@@ -326,7 +353,7 @@ test.add_test('/','bnf_class',(path)=>{
 		it_compile('[ \\a \\b \\c ]',/[abc]/,compile(bnf_class))
 	});
 })
-
+//}
 // ================================================================================================
 /* link reg-symbol bnf-symbol quantifier
 link ::= ?`arg.id`< `$` ( ?id=$identifier | `{` (?id=$identifier) `}` );
@@ -335,7 +362,7 @@ bnf_symbol ::= $bnf_char|$quotedSequence|$bnf_class|$link;
 quantifier ::= [`*+?`] | `{`$spcs(`,`$spcs$num|$num($spcs`,`$spcs$num?)?)$spcs`}` 
 	(?#пока только энергичные);
 */
-
+//{
 // возвращает ссылку на паттерн
 var err_link = (x)=>new FatalError(x,'ожидалась ссылка');
 exports.err_link = err_link;
@@ -405,8 +432,9 @@ test.add_test('/','quantifier',(path)=>{
 		it_compile('{ 3 , 5 }',{min:3,max:5}		,compile(quantifier))
 	})
 })
+//}
 // ================================================================================================
-/* string object modifier fake-modifier comment
+/* string object modifier fake-modifier
 string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
 object ::= `{` ([^'"\{\}] | $string | $object)* `}`;
 pre_code ::= (\`[^\`]*\`|$object) (`error`|`?`)? `<` (?#обработчик)
@@ -427,7 +455,6 @@ fake_modifier ::= `?`
 |	$identifier?`=`
 |	`toString:`
 );
-comment ::= `(?#` ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
 
 #todo
 back_pattern - создает предложение с именем, равным заданному идентификатору, 
@@ -447,6 +474,7 @@ error - означает, что обработчик вызовется для 
 	todo: сделать для каждого объекта свой
 	а результат становится undefined, а если это обработка ошибки, то она не меняется
 */
+//{
 // string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
 var err_string = (x)=>new FatalError(x,'не могу прочитать строку js');
 exports.err_string = err_string;
@@ -609,6 +637,15 @@ test.add_test('/','code',(path)=>{
 	})
 })
 
+/*
+modifier ::= `?`
+(	`!` (?#отрицание)
+|	$code
+|	$identifier`->` (?#back_pattern)
+|	$identifier?`=` (?#имя последовательности)
+|	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
+);
+*/
 var modifier = seq(need(1), txt('?'), any(collect,
 	txt('!').then(r=>({type:'not'})),
 	code,
@@ -616,7 +653,7 @@ var modifier = seq(need(1), txt('?'), any(collect,
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
 )).then(0,(x,e)=>err_in(x,'modifier',e));
-exports.modifier = modifier;
+//exports.modifier = modifier;
 var fake_modifier = seq(need_none, txt('?'), any(collect,
 	txt('!'),
 	seq(need_none,
@@ -633,37 +670,33 @@ var fake_modifier = seq(need_none, txt('?'), any(collect,
 	seq(need_none,opt(identifier,''),txt('=')),
 	txt('toString:')
 )).then(0,(x,e)=>err_in(x,'fake_modifier',e));
-exports.fake_modifier = fake_modifier;
+//exports.fake_modifier = fake_modifier;
 test.add_test('/','modifier',(path)=>{
-	describe('modifier ::= `?`\
-(	`!` (?#отрицание)\
-|	$code (?#обработчик)\
-|	$identifier`->` (?#back_pattern)\
-|	$identifier?`=` (?#имя последовательности)\
-|	`toString:` (?#директива, преобразующая объектную последовательность в строковую)\
-);',()=>{
-		describe('(?#отрицание) `!`',()=>{
-			it_compile('?!',{type:"not"},compile('modifier'))
+	describe('modifier ::= `?` (`!` | $code | $identifier`->` |	$identifier?`=` | `toString:` );'
+	,()=>{
+		describe('(?#отрицание) `!` (?# при удачном прочтении этой скобочной группы возвращается ошибка, а при неудачном - {err:"continue"} - чтобы если такой результат получит $alternatives, то он продолжил перебирать альтернативы, но если удачных альтернатив больше нет, а некоторый результат уже есть, то он будет возвращен. а $sequence считает, как будто это пустая строка)',()=>{
+			it_compile('?!',{type:"not"},compile(modifier))
 		})
-		describe('... match back feature ссылка может быть строкой, {pattern:"паттерн ввиде строки, который снова распарсится и выполнится"}',()=>{
-			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile('modifier'))
+		describe('$code (?# просто обрабатывает результат или ошибку)',()=>{
+			it_compile('?`"hello world"`<',
+				{type:"postscript",data:function(arg,pos){ return 'hello world'},error:false},
+				compile(modifier))
 		})
-		describe('return name feture',()=>{
-			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile('modifier'))
+		describe('(?#back_pattern) $identifier`->` (?# после разбора этого паттерна создается ссылка с этим именем, и паттерном (ввиде строки), равным результату прочтения этого паттерна. Следовательно back_pattern можно указывать только в конкатенирующих последовательностях)',()=>{
+			it_compile('?identifier->',{type:"back_pattern",data:"identifier"},compile(modifier))
+		})
+		describe('(?#имя последовательности) $identifier?`=` (?#в объекте родительской последовательности создает свойство с этим именем, и присваивает туда результат. Если имя пустое, то результат присваивается непрямую в родительский объект.)',()=>{
+			it_compile('?identifier=',{type:"returnname",data:"identifier"},compile(modifier))
+		})
+		describe('`toString:` (?#директива, преобразующая объектную последовательность в строковую)',()=>{
+			it_compile('?toString:',{type:"toString"},compile(modifier))
 		})
 	})
 })
-
-var fake_reg_alternatives = new Forward;
-exports.fake_reg_alternatives = fake_reg_alternatives;
-var comment = seq(need_none,
-	txt('(?#'),	opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),
-	opt(quantifier)
-).then(0,(x,e)=>err_in(x,'comment',e));
-exports.comment = comment;
-
+//}
 // ================================================================================================
-/* reg-sequence fake-reg-sequence bnf-sequence
+/* (fake-)reg/bnf-sequence (fake-)reg/bnf-alternatives comment
+comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
 reg_sequence ::= $modifier* ($link |
 (	    $reg_symbol $quantifier?
 | 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
@@ -679,14 +712,32 @@ bnf_sequence ::= $modifier* ($spcs $link |
 | 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
 |	$comment
 ))*);
+reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
+bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
 */
-
+//{
 var reg_alternatives = new Forward();
 var bnf_alternatives = new Forward();
+var fake_reg_alternatives = new Forward;
+// comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
+var comment = seq(need_none,
+	txt('(?#'),	opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),
+	opt(quantifier)
+).then(0,(x,e)=>err_in(x,'comment',e));
+
+
 var pos_adder = (m,x)=>{m.pos = x; return m;};
 var err_seq_c_modifiers = x=>new PaarseError(x,'модификаторы цикла можно задавать только к циклу');
 var err_reg_sequence = (x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e);
 exports.err_reg_sequence = err_reg_sequence;
+/*
+reg_sequence ::= $modifier* ($link |
+(	    $reg_symbol $quantifier?
+| 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+*/
 var reg_sequence = seq(need_all,
 	rep(modifier.then(pos_adder)), // модификаторы
 	any(collect,
@@ -696,12 +747,10 @@ var reg_sequence = seq(need_all,
 				reg_symbol,
 				opt(quantifier,null)
 			).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
-			seq(need(1,3,6),
+			seq(need(1,2,4),
 				txt('('),
-				opt(seq(need(0),rep(modifier.then(pos_adder)),spcs,txt('*')),[]),
-				spcs,
+				opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]),
 				reg_alternatives,
-				spcs,
 				txt(')'),
 				opt(quantifier,null)
 			).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
@@ -713,6 +762,15 @@ var reg_sequence = seq(need_all,
 	)
 ).then(sequence_compiler,err_reg_sequence);
 exports.reg_sequence = reg_sequence;
+var err_fail_not = (x,name)=> new FatalError(x,'удалось прочитать то, что не должно быть прочитано: '+name)
+exports.err_fail_not = err_fail_not;
+/*
+fake_reg_sequence ::= $fake_modifier* ($link |
+(	    $reg_symbol $quantifier? (?#пробелы в reg_class и quantifier допустимы)
+| 	`(`   ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
+|	$comment
+)*);
+*/
 var fake_reg_sequence = seq(need_all,
 	rep(fake_modifier), // модификаторы
 	any(collect,
@@ -736,20 +794,29 @@ var fake_reg_sequence = seq(need_all,
 		))
 	)
 ).then(0,err_reg_sequence);
-exports.fake_reg_sequence = fake_reg_sequence;
+//exports.fake_reg_sequence = fake_reg_sequence;
+/*
+bnf_sequence ::= $modifier* ($spcs $link |
+($spcs(	$bnf_symbol $quantifier?
+| 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
+|	$comment
+))*);
+*/
 var bnf_sequence = seq(need_all,
 	rep(modifier.then(pos_adder)), // модификаторы
 	any(collect,
 		seq(need(1),spcs,link.then((s,x)=>({type:'link',link:s,pos:x}))),
 		rep(seq(need(1),spcs,any(collect, // паттерны
 			seq(need_all,
-				reg_symbol,
+				bnf_symbol,
 				opt(quantifier,null)
 			).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
-			seq(need(1,2,4),
+			seq(need(1,3,6),
 				txt('('),
-				opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]),
+				opt(seq(need(0),rep(modifier.then(pos_adder)),spcs,txt('*')),[]),
+				spcs,
 				bnf_alternatives,
+				spcs,
 				txt(')'),
 				opt(quantifier,null)
 			).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
@@ -760,8 +827,32 @@ var bnf_sequence = seq(need_all,
 		)))
 	)
 ).then(sequence_compiler,err_reg_sequence);
-exports.bnf_sequence = bnf_sequence;
+//exports.bnf_sequence = bnf_sequence;
+// reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
+.then(alternatives_compiler);
+// fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
+fake_reg_alternatives.pattern = seq(need_none,fake_reg_sequence,rep(seq(need_none,txt('|'),fake_reg_sequence)));
+// bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
+bnf_alternatives.pattern = seq(need_all,bnf_sequence,rep(seq(need(2),spcs,txt('|'),bnf_sequence)))
+.then(alternatives_compiler);
+test.add_test('/','seqaltcom',()=>{
+	// todo тестирование синтаксиса (fake-)reg/bnf-sequence (fake-)reg/bnf-alternatives comment
+})
 
+//}
+// ================================================================================================
+/* группы пока только энергичные, без возвратов, как будто (?>...)
+a(?>bc|b|x)cc 
+	abcc fail
+	axcc OK
+// обычным группам будет синтаксис ((нанана))
+отличия от обычных regexp-ов:
+рекурсивные - можно вызывать один паттерн из другого (есть в perl)
+группы надо именовать вручную
+результат группы можно обработать прям сразу
+по умолчанию результат возвращается в JSON
+*/
 /* есть 3 типа "функций":
 	последовательность (символов, "функций" и т.д.)
 		может иметь идущие в начале модификаторы, каждый начинается с ?
@@ -780,10 +871,13 @@ exports.bnf_sequence = bnf_sequence;
 		в противном случае она имеет тип cat
 	но если функция* имеет модификатор ?toString: то она все равно имеет тип cat
 	если в функции* имеется модификатор ?!(не), то она всегда имеет тип cat, 
-		и всегда возвращает пустую строку в случае НЕудачного завершения
+		и всегда возвращает в случае НЕудачного завершения
+			пустую строку в качестве результата
+			и {err:'continue'} вместо true в качестве ошибки, т.е. удачности результата
 	фунякция является объектной, если хотябы одна из функций, которую она вызывает, 
 		имеет тип obj, иначе функция является конкатенирующей
-	но если последовательность состоит только из вызова ссылки на паттерн, и при этом указано (возможно пустое) имя
+	но если последовательность состоит только из вызова ссылки на паттерн, 
+		и при этом указано (возможно пустое) имя
 		то последовательность все равно является объектной
 
 	объектная функция* может иметь обработчики только если имеет (возможно пустое) имя
@@ -792,7 +886,7 @@ exports.bnf_sequence = bnf_sequence;
 	перечисление имеет атрибут direct, если хотябы одна из альтернатив имеет атрибут direct
 	если функция* вызывает хотябы одну функцию, которая direct
 		то она обязана иметь (возможно пустое) имя
-	если цикл является объектным, он обязан иметь (возможно пустое) имя
+	если цикл является объектным, он обязан иметь (возможно пустое) имя #todo: или атрибут toString
 === как функции получают результат ===
 	конкатенирующие функции* передают-получают результаты по ссылке и конкатенируют их 
 		(предварительно приведя к строке JSON, если это не строка)
@@ -815,7 +909,7 @@ exports.bnf_sequence = bnf_sequence;
 		объект или строку в значение любого типа
 	перечисления передают переданный им объект на прямую в каждую альтернативу-перечисление
 */
-
+//{
 var parser_tail_error = [];
 var modifier_throws = [];
 var error_modifier_throws = [];
@@ -888,8 +982,6 @@ function minmaxToRegExp({min,max}) {
 }
 
 var err_uncycle = (x,i,name)=>new FatalError(x,'защита от зацикливания '+name+': на итерации '+i+' было прочитано 0 символов');
-var err_not_fail = (x,name)=> new FatalError(x,'удалось прочитать то, что не должно быть прочитано: '+name)
-exports.err_not_fail = err_not_fail;
 var perr_c_name = x=>new ParseError(x,'объектный цикл должен иметь (возможно пустое) имя')
 var perr_dublicate = (x,name)=>new ParseError(x,'повторно указано: '+name);
 var perr_cycle_bp = x=>new ParseError(x,'цикл не может содержать back_pattern');
@@ -1043,7 +1135,7 @@ function sequence_compiler([modifiers,patterns],pattern_x){
 		var r = fun(str,pos,res);
 		pos.x = x;
 		res.res = '';
-		return !isGood(r) ? /*OK,but*/{err:"continue"} : err_not_fail(x,name); // всегда попадет в alternatives
+		return !isGood(r) ? /*OK,but*/{err:"continue"} : err_fail_not(x,name); // всегда попадет в alternatives
 	}
 
 	/* всего 2 типа функций: конкатенирующие и объектные*/
@@ -1446,62 +1538,6 @@ function sequence_compiler([modifiers,patterns],pattern_x){
 	}
 }
 
-/* старый комментарий
-// чтобы использовать имена в группе с квантификатором, она должна быть именованной
-рег: namedSequence ::= "namedModifier* (symbol quantificator? | \
-`(` namedModifier* `*` 	namedAlternatives 	`)` quantificator 	| \
-`(` 			alternatives 		`)` quantificator 	| \
-`(` 			namedAlternatives 	`)` 			)*"
-БНФ: namedSequence ::= "namedModifier* spc* (symbol quantificator? spc* | \
-`(` namedModifier* `*` 	namedAlternatives 	spc* `)` quantificator 	spc* | \
-`(` 			alternatives 		spc* `)` quantificator 	spc* | \
-`(` 			namedAlternatives 	spc* `)` 		spc* )*"
-// последовательность символов с квантификаторами преобразует в один регексп (с галкой в начале)
-// 
-
-namedAlternatives ::= "namedSequence (`|`namedSequence)*"
-
-main ::= "namedAlternatives `$`?"
-// в строку в начале автоматически добавляется `?=`
-
-// группы пока только энергичные, без возвратов, как будто (?>...)
-// обычным группам будет синтаксис ((нанана))
-// функциональность \n где n - номер скобки - отсутствует, возможно ее можно будет выразить через (())
-отличия от обычных regexp-ов:
-рекурсивные - можно вызывать один паттерн из другого (есть в perl)
-группы надо именовать вручную
-результат группы можно обработать прям сразу
-по умолчанию результат возвращается в JSON
-
-
-
-p_sequence
-	символ		1
-	e_sequence	2...
-	e_cycle		4
-p_alternatives
-	<e_sequence>	...2
-	e_alternatives	3
-
-
-p_sequence, который вызывает символы (с квантификатором), и который создает e_sequence, который вызывает эти символы
-p_sequence, который вызывает p_alternatives (без квантификатора), и который создает e_sequence, который может вызывать результат p_alternatives
-	p_alternatives, который вызывает p_sequence (только один), и который возвращает результат p_sequence
-p_alternatives, который вызывает p_sequence (через | ), и который создает e_alternatives, который может вызывать результат p_sequence
-p_sequence, который вызывает p_alternatives (с квантификатором), и который создает e_cycle, который может вызывать результат p_alternatives
-*/
-
-// ====================================================================================================
-/* reg-alternatives fake-reg-alternatives bnf-alternatives
-reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
-fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
-bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
-*/
-reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
-.then(alternatives_compiler);
-fake_reg_alternatives.pattern = seq(need_none,fake_reg_sequence,rep(seq(need_none,txt('|'),fake_reg_sequence)));
-bnf_alternatives.pattern = seq(need_all,bnf_sequence,rep(seq(need(2),spcs,txt('|'),bnf_sequence)))
-.then(alternatives_compiler);
 function alternatives_compiler([head,tail]){
 	/* перечисления
 	=== как перечисления получают результат ===
@@ -1574,7 +1610,313 @@ function alternatives_compiler([head,tail]){
 	}
 }
 
-// ====================================================================================================
+/* конкатенирующие и отрицание - тесты
+	последовательности
+		ab[1-9]*cd
+			abcd
+			ab12334cd
+		ab([1-9]*c)d
+			abcd
+			ab12334cd
+	циклы
+		a(x)*b
+			ab
+			axb
+			axxxxb
+		a(x)+b
+			ab
+			axb
+			axxxxb
+		a(x)?b
+			ab
+			axb
+			axxb
+		a(x){7,9}b
+			ab
+			axb
+			axxxxxxxxb
+			axxxxxxxxxxb
+	альтернативы
+		a|b|c
+			a
+			b
+			c
+			d
+		в последовательностях
+			x(a|b|c)y
+				xy
+				xay
+				xby
+				xcy
+				xdy
+		в циклах
+			x(a|b|c)*y
+				xy
+				xaby
+				xbcy
+				xcdy
+				xdy
+		группы пока только энергичные, без возвратов, как будто (?>...)
+			a(bc|b|x)cc 
+				abcc fail
+				axcc OK
+	отрицание
+		?!x
+			x	fail
+		ab(?!x)cd
+			abcd	OK
+			abxcd	fail
+			abycd	fail
+		a|?!x|b
+			a	OK(1)
+			x	fail(2)
+			b	OK(3)
+		a|?!x|x
+			x	fail(2)
+		a|x|?!x
+			x	OK(2)
+		k(a|?!x|b)l
+			kxl	fail
+		k|(a|?!x|b)|x
+			x	OK
+		k|(?!x)|x
+			x	OK
+		k|(?!y)|z
+			x	fail(2), остались непрочитанные символы - todo
+*/
+test.add_test('/','cat_negate',(path)=>{
+	var alt = parse(reg_alternatives)
+	var err_alt = err_parse(reg_alternatives)
+	describe('конкатенирующие и отрицание',()=>{
+		describe('последовательности',()=>{
+/*	последовательности
+		ab[1-9]*cd
+			abcd
+			ab12334cd
+		ab([1-9]*c)d
+			abcd
+			ab12334cd
+*/
+			it_parse('ab[1-9]*cd','abcd','abcd',alt)
+			it_parse('ab[1-9]*cd','ab12334cd','ab12334cd',alt)
+			it_parse('ab([1-9]*c)d','abcd','abcd',alt)
+			it_parse('ab([1-9]*c)d','ab12334cd','ab12334cd',alt)
+		})
+		describe('циклы',()=>{
+/*	циклы
+		a(x)*b
+			ab
+			axb
+			axxxxb
+		a(x)+b
+			ab
+			axb
+			axxxxb
+		a(x)?b
+			ab
+			axb
+			axxb
+		a(x){7,9}b
+			ab
+			axb
+			axxxxxxxxb
+			axxxxxxxxxxb
+*/
+			it_parse('a(x)*b','ab','ab',alt)
+			it_parse('a(x)*b','axb','axb',alt)
+			it_parse('a(x)*b','axxxxb','axxxxb',alt)
+			it_err_parse('a(x)+b','ab',()=>err_rgx(1,/x/.source),err_alt)
+			it_parse('a(x)+b','axb','axb',alt)
+			it_parse('a(x)+b','axxxxb','axxxxb',alt)
+			it_parse('a(x)?b','ab','ab',alt)
+			it_parse('a(x)?b','axb','axb',alt)
+			it_err_parse('a(x)?b','axxxxb',()=>err_rgx(2,/b/.source),err_alt)
+			it_err_parse('a(x){7,9}b','ab',()=>err_rgx(1,/x/.source),err_alt)
+			it_err_parse('a(x){7,9}b','axb',()=>err_rgx(2,/x/.source),err_alt)
+			it_parse('a(x){7,9}b','axxxxxxxxb','axxxxxxxxb',alt)
+			it_err_parse('a(x){7,9}b','axxxxxxxxxxb',()=>err_rgx(10,/b/.source),err_alt)
+		})
+		describe('альтернативы',()=>{
+/*
+	альтернативы
+		a|b|c
+			a
+			b
+			c
+			d
+		в последовательностях
+			x(a|b|c)y
+				xy
+				xay
+				xby
+				xcy
+				xdy
+		в циклах
+			x(a|b|c)*y
+				xy
+				xaby
+				xbcy
+				xcdy
+				xdy
+		группы пока только энергичные, без возвратов, как будто (?>...)
+			a(bc|b|x)cc 
+				abcc fail
+				axcc OK
+*/
+			it_parse('a|b|c','a','a',alt)
+			it_parse('a|b|c','b','b',alt)
+			it_parse('a|b|c','c','c',alt)
+			it_err_parse('a|b|c','d',()=>err_filtered(0,[
+				err_rgx(0,/a/.source),
+				err_rgx(0,/b/.source),
+				err_rgx(0,/c/.source),
+				]),err_alt)
+			describe('в последовательностях',()=>{
+				it_err_parse('x(a|b|c)y','xy',()=>err_filtered(1,[
+					err_rgx(1,/a/.source),
+					err_rgx(1,/b/.source),
+					err_rgx(1,/c/.source),
+					]),err_alt)
+				it_parse('x(a|b|c)y','xay','xay',alt)
+				it_parse('x(a|b|c)y','xby','xby',alt)
+				it_parse('x(a|b|c)y','xcy','xcy',alt)
+				it_err_parse('x(a|b|c)y','xdy',()=>err_filtered(1,[
+					err_rgx(1,/a/.source),
+					err_rgx(1,/b/.source),
+					err_rgx(1,/c/.source),
+					]),err_alt)
+			})
+			describe('в циклах',()=>{
+				it_parse('x(a|b|c)*y','xy','xy',alt)
+				it_parse('x(a|b|c)*y','xaby','xaby',alt)
+				it_parse('x(a|b|c)*y','xbcy','xbcy',alt)
+				it_err_parse('x(a|b|c)*y','xcdy',()=>err_rgx(2,/y/.source),err_alt)
+				it_err_parse('x(a|b|c)*y','xdy',()=>err_rgx(1,/y/.source),err_alt)
+			})
+			describe('группы пока только энергичные, без возвратов, как будто (?>...)',()=>{
+				it_err_parse('a(bc|b|x)cc','abcc',()=>err_rgx(3,/cc/.source),err_alt)
+				it_parse('a(bc|b|x)cc','axcc','axcc',alt)
+			})
+		})
+		describe('отрицание',()=>{
+/*
+	отрицание
+		?!x
+			x	fail
+		ab(?!x)cd
+			abcd	OK
+			abxcd	fail
+			abycd	fail
+		a|?!x|b
+			a	OK(1)
+			x	fail(2)
+			b	OK(3)
+		a|?!x|x
+			x	fail(2)
+		a|x|?!x
+			x	OK(2)
+		k(a|?!x|b)l
+			kxl	fail
+		k|(a|?!x|b)|x
+			x	OK
+		k|(?!x)|x
+			x	OK
+		k|(?!y)|z
+			x	fail(2), остались непрочитанные символы
+*/
+			it_err_parse('?!x','x',()=>err_fail_not(0,'безымянная последовательность'),err_alt)
+			it_parse('ab(?!x)cd','abcd','abcd',alt)
+			it_err_parse('ab(?!x)cd','abxcd',()=>err_fail_not(2,'безымянная последовательность'),err_alt)
+			it_err_parse('ab(?!x)cd','abycd',()=>err_rgx(2,/cd/.source),err_alt)
+			it_parse('a|?!x|b','a','a',alt)
+			it_err_parse('a|?!x|b','x',()=>err_filtered(0,[
+				err_rgx(0,/a/.source),
+				err_fail_not(0,'безымянная последовательность')
+				]),err_alt)
+			it_parse('a|?!x|b','b','b',alt)
+			it_err_parse('a|?!x|x','x',()=>err_filtered(0,[
+				err_rgx(0,/a/.source),
+				err_fail_not(0,'безымянная последовательность')
+				]),err_alt)
+			it_parse('a|x|?!x','x','x',alt)
+			it_err_parse('k(a|?!x|b)l','kxl',()=>err_filtered(1,[
+				err_rgx(1,/a/.source),
+				err_fail_not(1,'безымянная последовательность')
+				]),err_alt)
+			it_parse('k|(a|?!x|b)|x','x','x',alt)
+			it_parse('k|(?!x)|x','x','x',alt)
+/*			it_err_parse('k|(?!y)|z','x',()=>err_filtered(1,[
+				err_rgx(1,/a/.source),
+				err_fail_not(1,'безымянная последовательность')
+				]),err_alt)
+				не err_alt надо, а что-то, что проверяет оставшиеся символы
+*/
+		})
+	})
+})
+
+/* объектные и toString - тесты
+	последовательности
+		создание объекта 
+			глубиной 1
+				напрямую
+					?name=xy
+				через неименованную вложенность
+					ab(?name=xy)cd
+				toString
+					q(?toString:ab(?name=xy)cd)w
+			глубиной 3
+				?n1=(q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n2:'w',n3:{n4:'r',n5:'y'},n6:'iop'}}
+			когда в объектной последовательности не указано имя, 
+				то результатом этой последовательности будет именно объект
+				и такая последовательность скопирует все свойства этого объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к. они могут возвратить и не объект)
+				?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop) ошибка
+	циклы
+		ab(?n=*x|y|z)*cd
+			zbxyxyxzcd	{n:['x','y','x','y','x','z']}
+		ab(?=*x|y|z)*cd
+			zbxyxyxzcd	['x','y','x','y','x','z']
+		ab(*x(?=y)z)*cd	ошибка
+		ab(?toString:*x(?=y)z)*cd
+			abxyzxyzcd	ab['y','y']cd
+	direct с пустым именем
+		напрямую
+			для возможности добавления обработчиков рядом с ?=
+				?n1=(?=?`{erg.n7='asd';return arg}`<q(?n2=w)e(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n2:'w',n4:'r',n5:'y',n7:'asd',n6:'iop'}}
+				?n1=(q(?n2=w)e)(?=(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n4:'r',n5:'y',n6:'iop'}}  
+					 - здесь промежуточный результат {n2:'w'} полностью заменяется объектом {n4:'r',n5:'y'}, после чего в этот объект добавляется n6:'iop'
+				?n1=(?=?`arg.n4+arg.n5`<(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:'ry'}}
+					 - первая внешняя скобка родительский объект заменяет строкой, а вторая внешняя скобка добавляет свойство к этой строке (это происходит без ошибок, но при этом с этой переменной ни каких изменений не происходит)
+			для первоначального создания свойства где-то выше, особенно внутри циклов
+				q(?n1=(?=w(?=e)r|?=tyu))i - здесь можно обойтись без ?=
+					qweri	{n1:'e'}
+					qtyui	{n1:'tyu'}
+				q(w(?n1=e)r|?n1=tyu)i
+					qweri	{n1:'e'}
+					qtyui	{n1:'tyu'}
+				?=x(?=a(?=sd)f|q(?=we)r)*y
+					xasdfasdfqwery	['sd','sd','we']
+			для обрубания результата всего паттерна
+				?=q(?=*w)*e
+					qwwwwe	wwww
+		непрерывность (ошибка компиляции)
+			?= означает, что промежуточный результат родительской функции нужно заменить полученным результатом (и он может быть не обязательно объектом)
+				q(?n1=(w(?=e)r|?=tyu))i ошибка
+			ну и еще для удобочитаемости
+				qw((?n1=er)(?n2=ty))*ui	ошибка
+				?=*qw(?=*(?n1=er)(?n2=ty))*ui
+					qwertyertyui	[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}]
+*/
+test.add_test('/','obj_toString',(path)=>{
+	
+})
+
+//}
+// ===============================================================================================
 /* expr main
 expr ::= $spcs $identifier $spcs (`:=`$reg_alternatives | `::=` $spcs $bnf_alternatives $spcs );
 main ::= $expr(`;` $comment? $expr)* `;`? ;

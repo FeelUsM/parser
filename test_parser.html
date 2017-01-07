@@ -68,9 +68,9 @@
 	})
 	_describe('reg_sequence ::= "modifier* (symbol quantificator? | `((`modifier*`*`)?alternatives`)` quantificator? )*" ; alternatives ::= "sequence (`|`sequence)*"',()=>{
 		describe('script feature',()=>{
-			it_parse(	'?`{throw {readed:arg}}`<abc'	,'abc',undefined,'reg_sequence','за то в набор складывает') // #todo err
-			it_parse(	'?`{return {readed:arg}}`<abc'	,'abc',{readed:"abc"},parse('reg_sequence'))
-			it_parse(	"?`arg+arg`<'+'?`arg+arg`<abc"		,'abc','abcabcabcabc',parse('reg_sequence'))
+			it_parse(	'?`{throw {readed:arg}}`<abc'	,'abc',undefined,parse(reg_sequence),'за то в набор складывает') // #todo err
+			it_parse(	'?`{return {readed:arg}}`<abc'	,'abc',{readed:"abc"},parse(reg_sequence))
+			it_parse(	"?`arg+arg`<'+'?`arg+arg`<abc"		,'abc','abcabcabcabc',parse(reg_sequence))
 			it_err_compile(	"?`arg+arg`<'+'?`arg+arg`abc"	,()=>err_filtered(21,[
 					err_txt(21,'error'),
 					err_txt(21,'<'),
@@ -83,7 +83,7 @@
 					err_char(11),
 					err_txt(11,'('),
 					err_txt(11,'$')
-				]),'reg_sequence')
+				]),compile(reg_sequence))
 			it_err_compile(	"?`arg+arg`?`arg+arg`<abc"	,()=>err_filtered(10,[
 					err_txt(10,'error'),
 					err_txt(10,'<'),
@@ -97,8 +97,8 @@
 					err_txt(0,'('),
 					err_txt(0,'(?#')
 				]),'reg_sequence')
-			it_parse(	"?`arg+arg`<abc"				,'abc','abcabc',parse('reg_sequence'))
-			it_parse(	"?{readed:arg}<abc"				,'abc',{readed:"abc"},parse('reg_sequence'))
+			it_parse(	"?`arg+arg`<abc"				,'abc','abcabc',parse(reg_sequence))
+			it_parse(	"?{readed:arg}<abc"				,'abc',{readed:"abc"},parse(reg_sequence))
 		})
 		describe('not feature',()=>{
 			it('"?!abc" -> fun(ab->"") -> {err:"continue"}',()=>{ // parse and err_parse
@@ -106,9 +106,9 @@
 				assertDeepEqual(reg_sequence.exec('?!abc').fun('ab',{x:0},res),{err:"continue"});
 				assert.strictEqual(res.res,'');
 			})
-			it_err_parse('?!abc','abc',()=>(err_not_fail(0,'безымянная последовательность')))
+			it_err_parse('?!abc','abc',()=>(err_fail_not(0,'безымянная последовательность')),parse(reg_sequence))
 		})
-		it_parse("abc",'abc','abc',parse('reg_sequence'));
+		it_parse("abc",'abc','abc',parse(reg_sequence));
 	})
 	run_tests();
 	/*

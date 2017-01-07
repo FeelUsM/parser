@@ -67,7 +67,8 @@ function main(module, exports, require) {
 			var funobj = fun.exec(pattern);
 			if(!funobj.fun)
 				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
-			assertDeepEqual(funobj.fun(str,{x:0},inres),true);
+			var err = funobj.fun(str,{x:0},inres);
+			assertDeepEqual(err,true);
 			assertDeepEqual(inres.res,res);
 		}
 		do_parse.toString = ()=>'var inres = {res:{}};\n'+
@@ -153,14 +154,20 @@ function main(module, exports, require) {
 	function add_category(path,short_name,long_name) {
 		if(!exports.testing_enabled) return;
 		var target = path_resolve(path);
-		if(target.__type != 'cat') throw new Error('категорию можно добавить только в категорию: '+path);
+		if(target.__type != 'cat') 
+			throw new Error('категорию можно добавить только в категорию: '+path);
+		if(short_name in target) 
+			throw new Error('вы пытаетесь повторно добавить тест с именем '+short_name+' в '+path);
 		target[short_name] = {__type:'cat',__name:long_name};
 	}
 	exports.add_category = add_category;
 	function add_test(path,short_name,fun) {
 		if(!exports.testing_enabled) return;
 		var target = path_resolve(path);
-		if(target.__type != 'cat') throw new Error('тест можно добавить только в категорию: '+path);
+		if(target.__type != 'cat') 
+			throw new Error('тест можно добавить только в категорию: '+path);
+		if(short_name in target) 
+			throw new Error('вы пытаетесь повторно добавить тест с именем '+short_name+' в '+path);
 		target[short_name] = {__type:'test',__fun:fun};
 	}
 	exports.add_test = add_test;
