@@ -1856,8 +1856,7 @@ test.add_test('/','cat_negate',(path)=>{
 })
 
 /* объектные и toString - тесты
-	последовательности
-		создание объекта 
+	последовательности, создание объекта 
 			глубиной 1
 				напрямую
 					?name=xy
@@ -1912,8 +1911,43 @@ test.add_test('/','cat_negate',(path)=>{
 					qwertyertyui	[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}]
 */
 test.add_test('/','obj_toString',(path)=>{
-	
+	var alt = parse(reg_alternatives)
+	var err_alt = err_parse(reg_alternatives)
+	describe('объектные и toString',()=>{
+		describe('последовательности, создание объекта',()=>{
+/*
+	последовательности, создание объекта 
+			глубиной 1
+				напрямую
+					?name=xy
+				через неименованную вложенность
+					ab(?name=xy)cd
+				toString
+					q(?toString:ab(?name=xy)cd)w
+			глубиной 3
+				?n1=(q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n2:'w',n3:{n4:'r',n5:'y'},n6:'iop'}}
+			когда в объектной последовательности не указано имя, 
+				то результатом этой последовательности будет именно объект
+				и такая последовательность скопирует все свойства этого объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к. они могут возвратить и не объект)
+				?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop) ошибка
+*/
+			describe('глубиной 1',()=>{
+				it_parse('?name=xy','xy',{name:'xy'},alt,"напрямую: ");
+				it_parse('ab(?name=xy)cd','abxycd',{name:'xy'},alt,"через неименованную вложенность: ");
+				it_parse('q(?toString:ab(?name=xy)cd)w','qabcdw',
+					'q{"name":"xy"}w',alt,"напрямую: ");
+			})
+		})
+	})
 })
+			var inres = {res:{}};
+			var funobj = reg_alternatives.exec('q(?toString:ab(?name=xy)cd)w');
+			if(!funobj.fun)
+				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
+			var err = funobj.fun('qabcdw',{x:0},inres);
+			assertDeepEqual(err,true);
+			assertDeepEqual(inres.res,'q{"name":"xy"}w');
 
 //}
 // ===============================================================================================

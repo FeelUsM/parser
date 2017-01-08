@@ -41,24 +41,6 @@
 
 // ===============================================================================
 	_describe('complex tests for one pattern',()=>{
-		describe('objects',()=>{
-			it_parse('?=a(?=bc)d'		,'abcd','bc','reg_sequence')
-			it_parse('a(?y=bc)d'	,'abcd',{y:"bc"},parse('reg_sequence'));
-			it_parse('?x=a(?y=bc)d'	,'abcd',{x:{y:"bc"}},parse('reg_sequence'))
-			it_parse('?x=abcd'		,'abcd',{x:"abcd"},parse('reg_sequence'))
-			it_parse('?=abcd'		,'abcd','abcd',parse('reg_sequence'))
-		})
-		describe('cycle',()=>{
-			it_parse('ab(xx)*cd','abxxxxcd','abxxxxcd',parse('reg_sequence'))
-		})
-		describe('alternatives',()=>{
-			it_err_parse('ab(xxx|yy|z)cd'	,'abcd'		,()=>err_filtered(2,[
-				err_rgx(2,'xxx'),err_rgx(2,'yy'),err_rgx(2,'z'),]))
-			it_err_parse('ab(xxx|yy|z)cd'	,'abzzcd'	,()=>err_rgx(3,'cd'))
-			it_parse(	'ab(xxx|yy|z)cd'	,'abzcd'	,'abzcd',parse('reg_sequence'))
-			it_parse(	'ab(xxx|yy|z)cd'	,'abyycd'	,'abyycd',parse('reg_sequence'))
-			it_parse(	'ab(xxx|yy|z)cd'	,'abxxxcd'	,'abxxxcd',parse('reg_sequence'))
-		})
 		describe('stringify',()=>{
 			it_parse('ab(?`"zzz"`<xxx)cd','abxxxcd','abzzzcd',parse('reg_sequence'))
 			it_parse('ab(?`zzz`<xxx)cd'	,'abxxxcd','abcd','reg_sequence','за то накапливает ошибки') // # todo err
@@ -100,15 +82,6 @@
 			it_parse(	"?`arg+arg`<abc"				,'abc','abcabc',parse(reg_sequence))
 			it_parse(	"?{readed:arg}<abc"				,'abc',{readed:"abc"},parse(reg_sequence))
 		})
-		describe('not feature',()=>{
-			it('"?!abc" -> fun(ab->"") -> {err:"continue"}',()=>{ // parse and err_parse
-				var res = {};
-				assertDeepEqual(reg_sequence.exec('?!abc').fun('ab',{x:0},res),{err:"continue"});
-				assert.strictEqual(res.res,'');
-			})
-			it_err_parse('?!abc','abc',()=>(err_fail_not(0,'безымянная последовательность')),parse(reg_sequence))
-		})
-		it_parse("abc",'abc','abc',parse(reg_sequence));
 	})
 	run_tests();
 	/*
