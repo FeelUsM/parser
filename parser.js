@@ -1158,7 +1158,8 @@ function sequence_compiler([modifiers,patterns],pattern_x){
 					+ если задано name - обернуть в новый FatalError и завершить
 				*/
 				if(compressed_patterns[i].mode!=='cat') throw new Error('происходит вызов объектного паттерна из конкатенирующего');
-				var back_res = {};
+				var back_res = {res:{}}; 
+					// паттерн может оказаться объектным, а он считает, что back_res.res уже объект
 				var err = compressed_patterns[i].fun(str,pos,back_res); // ВЫЗВАЛИ!
 
 				if(isFatal(err)) {
@@ -1245,32 +1246,33 @@ function sequence_compiler([modifiers,patterns],pattern_x){
 		var back_pattern = null;
 		var error_modifiers = [];
 		for(var i = modifiers.length-1; i>=0; i--) {
+			var do_splice = true;
 			if(modifiers[i].type==='not') { // ?!
 				not = !not;
-				modifiers.splice(i,1);
 			}
 			else if(modifiers[i].type==='returnname') { // ?name= ?=
 				if(name===null)
 					name = modifiers[i].data;
 				else
 					throw perr_dublicate(modifiers[i].pos,'имя');
-				modifiers.splice(i,1);
 			}
 			else if(modifiers[i].type === 'back_pattern') { // ?name->
 				if(back_pattern===null)
 					back_pattern = modifiers[i].data;
 				else
 					throw perr_dublicate(modifiers[i].pos,'back_pattern');
-				modifiers.splice(i,1);
 			}
 			else if(modifiers[i].type==='postscript') { // ?`code`< ?`code`error<
 				if(modifiers[i].error)
 					error_modifiers.push(modifiers.splice(i,1)[0]);
+				do_splice = false;
 			}
 			else if(modifiers[i].type==='toString') // ?toString:
 				toString = true;
 			else
 				throw new Error('неизвестный тип модификатора: '+modifiers[i].type)
+			if(do_splice)
+				modifiers.splice(i,1);
 		}
 		return {not,name,back_pattern,toString,modifiers,error_modifiers};
 	}
@@ -1868,7 +1870,7 @@ test.add_test('/','cat_negate',(path)=>{
 				?n1=(q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)
 					qwertyuiop	{n1:{n2:'w',n3:{n4:'r',n5:'y'},n6:'iop'}}
 			когда в объектной последовательности не указано имя, 
-				то результатом этой последовательности будет именно объект
+				то результатом этой последовательности будет именно объект,
 				и такая последовательность скопирует все свойства этого объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к. они могут возвратить и не объект)
 				?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop) ошибка
 	циклы
@@ -1928,27 +1930,39 @@ test.add_test('/','obj_toString',(path)=>{
 				?n1=(q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)
 					qwertyuiop	{n1:{n2:'w',n3:{n4:'r',n5:'y'},n6:'iop'}}
 			когда в объектной последовательности не указано имя, 
-				то результатом этой последовательности будет именно объект
+				то результатом этой последовательности будет именно объект,
 				и такая последовательность скопирует все свойства этого объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к. они могут возвратить и не объект)
 				?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop) ошибка
 */
 			describe('глубиной 1',()=>{
 				it_parse('?name=xy','xy',{name:'xy'},alt,"напрямую: ");
 				it_parse('ab(?name=xy)cd','abxycd',{name:'xy'},alt,"через неименованную вложенность: ");
-				it_parse('q(?toString:ab(?name=xy)cd)w','qabcdw',
+				it_parse('q(?toString:ab(?name=xy)cd)w','qabxycdw',
 					'q{"name":"xy"}w',alt,"напрямую: ");
+			})
+			describe('глубиной 3',()=>{
+				it_parse('?n1=(q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)','qwertyuiop',
+					{n1:{n2:'w',n3:{n4:'r',n5:'y'},n6:'iop'}},alt);
+			})
+			describe('когда в объектной последовательности не указано имя, то результатом этой \
+последовательности будет именно объект, и такая последовательность скопирует все свойства этого\
+ объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к.\
+ они могут возвратить и не объект)',()=>{
+				it_err_parse('?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)','qwertyuiop',
+					()=>err_rgx(2,/b/.source),err_alt)
 			})
 		})
 	})
 })
-			var inres = {res:{}};
-			var funobj = reg_alternatives.exec('q(?toString:ab(?name=xy)cd)w');
-			if(!funobj.fun)
-				throw new Error('compile error: '+JSON.stringify(funobj,'',4))
-			var err = funobj.fun('qabcdw',{x:0},inres);
-			assertDeepEqual(err,true);
-			assertDeepEqual(inres.res,'q{"name":"xy"}w');
-
+if(1) {
+	var inres = {res:{}};
+	var funobj = reg_alternatives.exec('?`7`<q(?n2=w)e');
+	if(!funobj.fun)
+		throw new Error('compile error: '+JSON.stringify(funobj,'',4))
+	var err = funobj.fun('qwe',{x:0},inres);
+	console.log(err);
+	console.log(inres.res);
+}
 //}
 // ===============================================================================================
 /* expr main
