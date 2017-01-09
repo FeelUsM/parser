@@ -229,7 +229,7 @@ function Pattern(exec) {
 				return new Pattern(function pattern_then_reserr(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (isFatal(r)) ?
+					return (!isGood(r)) ?
 						error_transform(x,r) :
 						transform(r,x);
 				});
@@ -237,7 +237,7 @@ function Pattern(exec) {
 				return new Pattern(function pattern_then_err(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (isFatal(r)) ?
+					return (!isGood(r)) ?
 						error_transform(x,r) :
 						r;
 				});
@@ -246,7 +246,7 @@ function Pattern(exec) {
 			return new Pattern(function pattern_then_res(str, pos/*.x*/) {
 				var x = pos.x;
 				var r = exec(str, pos);
-				return (isFatal(r)) ?
+				return (!isGood(r)) ?
 					r :
 					transform(r,x);
 			});

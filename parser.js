@@ -7,9 +7,14 @@ copyProps(require('meta_parser'),window);
 var test = require('parser_test_utils');
 
 /* todo
-закодить объектные и toString - тесты
+разобраться с политикой предоставления ошибок    
+чтоб в sequence_compile и alternatives_compile поступало как начало последовательности, так и ее кеонец
+2 режима: 'strict' и его отсутствие, когда в объектных последовательностях и циклах(?) 
+	?= "ставилось" автоматически, когда отсутствует
+
 распределить старые тесты по имеющимся рубрикам и в фишка code
 задать расположение фишки link & back_pattern, и немного позаполнять
+	ловля ошибок выполнения
 сделать тесты для синтаксиса:
 reg_sequence ::= $modifier* ($link |
 (	    $reg_symbol $quantifier?
@@ -1875,9 +1880,9 @@ test.add_test('/','cat_negate',(path)=>{
 				?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop) ошибка
 	циклы
 		ab(?n=*x|y|z)*cd
-			zbxyxyxzcd	{n:['x','y','x','y','x','z']}
+			abxyxyxzcd	{n:['x','y','x','y','x','z']}
 		ab(?=*x|y|z)*cd
-			zbxyxyxzcd	['x','y','x','y','x','z']
+			abxyxyxzcd	['x','y','x','y','x','z']
 		ab(*x(?=y)z)*cd	ошибка
 		ab(?toString:*x(?=y)z)*cd
 			abxyzxyzcd	ab['y','y']cd
@@ -1903,18 +1908,21 @@ test.add_test('/','cat_negate',(path)=>{
 					xasdfasdfqwery	['sd','sd','we']
 			для обрубания результата всего паттерна
 				?=q(?=*w)*e
+					qwwwwe	['w','w','w','w']
+				?=q(?=(w)*)e
 					qwwwwe	wwww
 		непрерывность (ошибка компиляции)
 			?= означает, что промежуточный результат родительской функции нужно заменить полученным результатом (и он может быть не обязательно объектом)
 				q(?n1=(w(?=e)r|?=tyu))i ошибка
 			ну и еще для удобочитаемости
 				qw((?n1=er)(?n2=ty))*ui	ошибка
-				?=*qw(?=*(?n1=er)(?n2=ty))*ui
+				?=qw(?=*(?n1=er)(?n2=ty))*ui
 					qwertyertyui	[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}]
 */
 test.add_test('/','obj_toString',(path)=>{
 	var alt = parse(reg_alternatives)
 	var err_alt = err_parse(reg_alternatives)
+	var comp_alt = compile(reg_alternatives)
 	describe('объектные и toString',()=>{
 		describe('последовательности, создание объекта',()=>{
 /*
@@ -1948,20 +1956,119 @@ test.add_test('/','obj_toString',(path)=>{
 последовательности будет именно объект, и такая последовательность скопирует все свойства этого\
  объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к.\
  они могут возвратить и не объект)',()=>{
-				it_err_parse('?n1=(?`7`<q(?n2=w)e)(?n3=(?n4=r)t(?n5=y))u(?n6=iop)','qwertyuiop',
-					()=>err_rgx(2,/b/.source),err_alt)
+				it_err_compile('a(?`7`<q(?n2=w)e)s',
+					()=>err_rgx(2,/b/.source),comp_alt)
+			})
+		})
+		describe('циклы',()=>{
+/*
+	циклы
+		ab(?n=*x|y|z)*cd
+			abxyxyxzcd	{n:['x','y','x','y','x','z']}
+		?=ab(?=*x|y|z)*cd
+			abxyxyxzcd	['x','y','x','y','x','z']
+		ab(*x(?=y)z)*cd	ошибка
+		ab(?toString:*x(?=y)z)*cd
+			abxyzxyzcd	ab['y','y']cd
+*/
+			it_parse('ab(?n=*x|y|z)*cd','abxyxyxzcd',{n:['x','y','x','y','x','z']},alt);
+			it_parse('?=ab(?=*x|y|z)*cd','abxyxyxzcd',['x','y','x','y','x','z'],alt);
+			it_err_compile('ab(*x(?=y)z)*cd',
+				()=>err_rgx(2,/b/.source),comp_alt)
+			it_parse('ab(?toString:*?=x(?=y)z)*cd','abxyzxyzcd','ab["y","y"]cd',alt);
+		})
+		describe('direct с пустым именем',()=>{
+			describe('напрямую',()=>{
+/*
+		напрямую
+			для возможности добавления обработчиков рядом с ?=
+				?n1=(?=?`{erg.n7='asd';return arg}`<q(?n2=w)e(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n2:'w',n4:'r',n5:'y',n7:'asd',n6:'iop'}}
+				?n1=(q(?n2=w)e)(?=(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:{n4:'r',n5:'y',n6:'iop'}}  
+					 - здесь промежуточный результат {n2:'w'} полностью заменяется объектом {n4:'r',n5:'y'}, после чего в этот объект добавляется n6:'iop'
+				?n1=(?=?`arg.n4+arg.n5`<(?n4=r)t(?n5=y))u(?n6=iop)
+					qwertyuiop	{n1:'ry'}}
+					 - первая внешняя скобка родительский объект заменяет строкой, а вторая внешняя скобка добавляет свойство к этой строке (это происходит без ошибок, но при этом с этой переменной ни каких изменений не происходит)
+			для первоначального создания свойства где-то выше, особенно внутри циклов
+				q(?n1=(?=w(?=e)r|?=tyu))i - здесь можно обойтись без ?=
+					qweri	{n1:'e'}
+					qtyui	{n1:'tyu'}
+				q(w(?n1=e)r|?n1=tyu)i
+					qweri	{n1:'e'}
+					qtyui	{n1:'tyu'}
+				?=x(?=a(?=sd)f|q(?=we)r)*y
+					xasdfasdfqwery	['sd','sd','we']
+			для обрубания результата всего паттерна
+				?=q(?=*w)*e
+					qwwwwe	['w','w','w','w']
+				?=q(?=(w)*)e
+					qwwwwe	wwww
+*/
+				describe('для возможности добавления обработчиков рядом с ?=',()=>{
+				it_parse('?n1=(?=?`{arg.n7="asd";return arg}`<q(?n2=w)e(?n4=r)t(?n5=y))u(?n6=iop)',
+						'qwertyuiop',{n1:{n2:'w',n4:'r',n5:'y',n7:'asd',n6:'iop'}},alt);
+					it_parse('?n1=(q(?n2=w)e)(?=(?n4=r)t(?n5=y))u(?n6=iop)','qwertyuiop',
+						{n1:{n4:'r',n5:'y',n6:'iop'}},alt,
+						'- здесь промежуточный результат {n2:"w"} полностью заменяется объектом\
+ {n4:"r",n5:"y"}, после чего в этот объект добавляется n6:"iop":--- ');
+					it_parse('?n1=(?=?`arg.n4+arg.n5`<(?n4=r)t(?n5=y))u(?n6=iop)','rtyuiop',
+						{n1:'ry'},alt,
+						'первая внешняя скобка родительский объект заменяет строкой, а вторая внешняя скобка добавляет свойство к этой строке (это происходит без ошибок, но при этом с этой переменной ни каких изменений не происходит):--- ');
+				})
+				describe('для первоначального создания свойства где-то выше, особенно внутри циклов',()=>{
+					it_parse('q(?n1=(?=w(?=e)r|?=tyu))i','qweri',{n1:'e'},alt,
+						'здесь можно обойтись без ?=:-- ')
+					it_parse('q(?n1=(?=w(?=e)r|?=tyu))i','qtyui',{n1:'tyu'},alt,
+						'здесь можно обойтись без ?=:-- ')
+					it_parse('q(w(?n1=e)r|?n1=tyu)i','qweri',{n1:'e'},alt)
+					it_parse('q(w(?n1=e)r|?n1=tyu)i','qtyui',{n1:'tyu'},alt)
+					it_parse('?=x(?=*?=a(?=sd)f|?=q(?=we)r)*y','xasdfasdfqwery',['sd','sd','we'],alt)
+					it_err_compile('?=x(?=a(?=sd)f|q(?=we)r)*y',
+						()=>err_rgx(2,/b/.source),comp_alt)
+				})
+				describe('для обрубания результата всего паттерна',()=>{
+					it_parse('?=q(?=*w)*e','qwwwwe',['w','w','w','w'],alt)
+					it_parse('?=q(?=(w)*)e','qwwwwe','wwww',alt)
+				})
+			})
+			
+		})
+		describe('непрерывность (ошибка компиляции)',()=>{
+/*
+		непрерывность (ошибка компиляции)
+			?= означает, что промежуточный результат родительской функции нужно заменить полученным результатом (и он может быть не обязательно объектом)
+				q(?n1=(w(?=e)r|?=tyu))i ошибка
+			ну и еще для удобочитаемости
+				qw((?n1=er)(?n2=ty))*ui	ошибка
+				?=qw(?=*(?n1=er)(?n2=ty))*ui
+					qwertyertyui	[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}]
+*/
+			describe('?= означает, что промежуточный результат родительской функции нужно заменить полученным результатом (и он может быть не обязательно объектом)',()=>{
+				it_err_compile('?=x(?=a(?=sd)f|q(?=we)r)*y',
+					()=>err_rgx(2,/b/.source),comp_alt)
+			})
+			describe('ну и еще для удобочитаемости',()=>{
+				it_err_compile('qw((?n1=er)(?n2=ty))*ui',
+					()=>err_rgx(2,/b/.source),comp_alt)
+				it_parse('?=qw(?=*(?n1=er)(?n2=ty))*ui','qwertyertyui',
+					[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}],alt)
 			})
 		})
 	})
 })
-if(1) {
+if(0) {
 	var inres = {res:{}};
 	var funobj = reg_alternatives.exec('?`7`<q(?n2=w)e');
-	if(!funobj.fun)
-		throw new Error('compile error: '+JSON.stringify(funobj,'',4))
-	var err = funobj.fun('qwe',{x:0},inres);
-	console.log(err);
-	console.log(inres.res);
+	if(1)
+		console.log(funobj);
+	else {
+		if(!funobj.fun)
+			throw new Error('compile error: '+JSON.stringify(funobj,'',4))
+		var err = funobj.fun('qwe',{x:0},inres);
+		console.log(err);
+		console.log(inres.res);
+	}
 }
 //}
 // ===============================================================================================
