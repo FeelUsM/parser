@@ -6,36 +6,123 @@ function main(module, exports, require) {
 var test = require('parser_test_utils');
 test.add_category('/','meta parser','');
 
-//мы поняли то что прочитали, но это не то, что мы хотим
-// в этом случае обработка прекращается (т.к. вместо результата ParseError), а парсинг (последовательностей) продолжается
-// это влияет на any так: если синтаксически удалось разобрать 2 варианта, и в одном из них произошла логическая ошибка, 
-//    то логично использовать разобранный вариант, где нет ошибок
-//    но на практике это встречается редко
-// на последовательность разбора seq и rep это не влияет, но они создают 
-//	  new ParseError(where/*старт*/,[полученных ошибок],обычный результат)
-// в обработчиках then ParseError поступает на обычный обработчик
-function ParseError(where,what,res){
+/*
+exports.ParseError = ParseError;
+exports.FatalError = FatalError;
+exports.isGood = isGood;
+exports.notFatal = notFatal;
+exports.isFatal = isFatal;
+
+exports.messageAdder = messageAdder;
+exports.fatalCollect = fatalCollect;
+exports.parseCollect = parseCollect;
+exports.error_prepare = error_prepare;
+
+exports.read_all = read_all
+exports.Pattern = Pattern;
+exports.Forward = Forward;
+
+exports.err_txt = err_txt;
+exports.read_txt = read_txt;
+exports.txt = txt;
+
+exports.err_rgx = err_rgx;
+exports.read_rgx = read_rgx;
+exports.rgx = rgx;
+
+exports.read_opt = read_opt;
+exports.opt = opt;
+
+exports.read_seq = read_seq;
+exports.need_all = need_all;
+exports.need = need;
+exports.need_none = need_none;
+exports.seq = seq;
+
+exports.read_rep = read_rep;
+exports.rep = rep;
+exports.star = star;
+
+exports.read_any = read_any;
+exports.any = any;
+*/
+
+//{ === ошибки ===
+/*
+Каким бы сложным язык ни был, мы создаем контекстно-свободный** над-язык*, который описывается БНФ.
+(* - если текст удовлетворяет правилам языка, то он удовдетворяет и правилам над-языка. 
+Обратное вообще говоря не верно.)
+Результатом такого разбора является синтаксическое дерево.
+А дальше узлам этого дерева (если точнее - продукциям БНФ) можно сопоставить фунции 
+(далее называемые обработчиками), которые обрабатывают результаты дочерних узлов, 
+и возвращают результат в удобном для дальнейшего использования виде.
+
+Если текст не удовлетворяет этой БНФ, происходит FatalError, и разбор прекращается.
+т.е. FatalError-ы объединяются друг в друга при перечислениях + tail_error в ошибку-объединение
+в последовательностях они просто проскакивают как есть + обработчик ошибки
+
+Если текст удовлетворяет БНФ (т.е. правилам над-языка), но не удовлетворяет праивлам самого языка,
+то хотябы один из обработчиков вместо результата должен возвратить ParseError.
+В этом случае разбор по БНФ продолжается как ни в чем ни бывало (ведь текст удовлетворяет БНФ), 
+-> но удачные результаты соседних (с узлом, где произошёл ParseError) узлов игнорируются****,
+а ошибки - накапливаются (вплоть до FatalError конечно***).
+Родительский узел узла или узлов, вернувших ParseError, не выполняет свой обработчик,
+и возвращает безымянный ParseError, содержащий в себе набор из всех этих ошибок,
+(**** а также в поле .res помещаются все требуемые результаты и ошибки 
+	(если конечно не произошёл fatal).
+	это поле после выполнения обработчика ошибки будет удалено)
+после чего выполняет обработчик ошибки этого узла, который может задать имя этой ошибке
+	(при помощи messageAdder).
+	Обработчик ошибки задает имя, если его нет, иначе 
+	для FtalError-а создает ошибку-обертку FtalError с заданным именем,
+	а для ParseError-а создает ошибку-обертку ParseError с заданным именем
+
+в перечислениях они просто проскакивают как есть + обработчик ошибки
+ - это в meta_parser-е, 
+а в parser-е - имя задается, если оно указано для данной продукции БНФ.
+т.е. ParseError-ы объединяются друг в друга в паттернах, имеющих имя.
+
+
+*** в этом месте начинают взаимодействовать FatalError-ы c ParseError-ами
+т.е. в последовательностях ParseError-ы объединяются с FatalError-ом
+	и создается безымянный FatalError.
+	если он был безымянным - вначале извлекается его содержимое
+перечисления (!!! + tail_error) - ведут себя как обычно
+
+иными словами 
+ParseError - мы поняли то что прочитали, но это не то, что мы хотим
+FatalError - мы не поняли, что прочитали
+
+** - для LL-парсера есть отличие от контекстно-свободных:
+если в перечислении был получен удачный результат, то прочитанный фрагмент уже не может быть прочитан по другому:
+"a(bc|b|x)cc" ---> fun(abcc) -> err_rgx(3,/cc/.source)
+"a(bc|b|x)cc" ---> fun(axcc ---> "axcc") -> true
+впрочем этого всегда можно избежать подобрав другую эквивалентную БНФ, например такую:
+"a(bccc?|xcc)"
+*/
+
+function ParseError(where,what,why,res){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
-	this.err = 1
-	this.what = what; // если what - массив, то where не имеет смысла
+	this.err = 'parse';
 	this.where = where;
-	this.res = res; // не обязательный
+	this.what = what;
+	this.why = why; // не обязательный
+	this.res = res; // не обязательный, после обработчика удаляется
 }
-//мы не поняли, что прочитали
+exports.ParseError = ParseError;
 function FatalError(where,what,why){
 	console.assert(typeof where == 'number','in ParseError where ('+where+') is not a number')
-	this.err = 2
-	this.what = what; // если what - массив, то where не имеет смысла
+	this.err = 'fatal';
 	this.where = where;
-	this.why = why;
+	this.what = what;
+	this.why = why; // не обязательный
 }
-var tail_error = []; // GLOBAL VARIABLE for tail error
-// var parser_debug; // GLOBAL VARIABLE for debug
-
+exports.FatalError = FatalError;
 // is result
 function isGood(r){
-	return (typeof r === 'object' && r!==null) ? r.err!=1 && r.err!=2 : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? r.err!='parse' && r.err!='fatal' : r!==undefined ;
 }
+exports.isGood = isGood;
 test.add_test('/meta parser','isGood',(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
@@ -56,11 +143,17 @@ test.add_test('/meta parser','isGood',(path)=>{
 		it('sould be TRUE for: {err:0}',function(){
 			assert.equal(isGood({err:0}),true);
 		})
-		it('sould be FALSE for: {err:1}',function(){
-			assert.equal(isGood({err:1}),false);
+		it('sould be TRUE for: {err:1}',function(){
+			assert.equal(isGood({err:1}),true);
 		})
-		it('sould be FALSE for: {err:2}',function(){
-			assert.equal(isGood({err:2}),false);
+		it('sould be TRUE for: {err:2}',function(){
+			assert.equal(isGood({err:2}),true);
+		})
+		it("sould be FALSE for: {err:'parse'}",function(){
+			assert.equal(isGood({err:'parse'}),false);
+		})
+		it("sould be FALSE for: {err:'fatal'}",function(){
+			assert.equal(isGood({err:'fatal'}),false);
 		})
 		it('sould be TRUE for: {err:"str"}',function(){
 			assert.equal(isGood({err:"str"}),true);
@@ -73,12 +166,13 @@ test.add_test('/meta parser','isGood',(path)=>{
 		})
 	})
 })
-
 // is result or ParseError
 function notFatal(r){
-	return (typeof r === 'object' && r!==null) ? r.err!=2 : r!==undefined ;
+	return (typeof r === 'object' && r!==null) ? r.err!='fatal' : r!==undefined ;
 }
+exports.notFatal = notFatal;
 function isFatal(r) { return !notFatal(r); }
+exports.isFatal = isFatal;
 test.add_test('/meta parser','notFatal',(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
@@ -102,11 +196,17 @@ test.add_test('/meta parser','notFatal',(path)=>{
 		it('sould be TRUE for: {err:1}',function(){
 			assert.equal(notFatal({err:1}),true);
 		})
-		it('sould be FALSE for: {err:2}',function(){
-			assert.equal(notFatal({err:2}),false);
+		it('sould be TRUE for: {err:2}',function(){
+			assert.equal(notFatal({err:2}),true);
+		})
+		it("sould be TRUE for: {err:'parse'}",function(){
+			assert.equal(notFatal({err:'parse'}),true);
+		})
+		it("sould be FALSE for: {err:'fatal'}",function(){
+			assert.equal(notFatal({err:'fatal'}),false);
 		})
 		it('sould be TRUE for: {err:"str"}',function(){
-			assert.equal(isGood({err:"str"}),true);
+			assert.equal(notFatal({err:"str"}),true);
 		})
 		it('sould be TRUE for: null',function(){
 			assert.equal(notFatal(null),true);
@@ -117,15 +217,232 @@ test.add_test('/meta parser','notFatal',(path)=>{
 	})
 })
 
-function addErrMessage(r,message){
-	if(!isGood(r) && r!==undefined) r.what+=message;
-	return r;
+function messageAdder(message) {
+	function addErrMessage(x,r){
+		console.assert(!isGood(r) && r!==undefined);
+		if(r.what=='')
+			r.what+=message;
+		else
+			if(isFatal(r))
+				return new FatalError(x,message,r);
+			else
+				return new ParseError(x,message,r);
+		return r;
+	}
+}
+exports.messageAdder = messageAdder;
+function fatalCollect(x,arr) { return new FatalError(x,'',arr)}
+exports.fatalCollect = fatalCollect;
+function parseCollect(x,arr) { return new ParseError(x,'',arr)}
+exports.parseCollect = parseCollect;
+
+function push_err(errs,r) {
+/*	// это перемещено в error_prepare
+	if(r.what=='')
+		for(var i=0; i<r.why.length; i++)
+			errs.push(r.why[i]);
+	else
+*/
+	errs.push(r);
 }
 
-var err_tail = (x,why)=>new FatalError(x,'в тексте присутствует одна из ошибок:',why);
-exports.err_tail = err_tail;
-var err_unknown = (x)=>new FatalError(x,'unknown error');
-exports.err_unknown = err_unknown;
+function error_prepare(err) {
+	function cut_parse(r) {
+		if(!isFatal(r)) return null;
+		if(!(r.why instanceof Array)) return null;
+		var res = [];
+		while(!isFatal(r.why[0]) && !isGood(r.why[0]))
+			res.push(r.why.shift());
+		if(r.why.length>0) {
+			var x = cut_parse(r.why[r.why.length-1])
+			if(x!==null)
+				res.push(x);
+		}
+		if(res.length>1)
+			return new ParseError(r.where,r.what,res);
+		else if(res.length==1)
+			return new ParseError(r.where,r.what,res[0]);
+		else
+			return null;
+	}
+
+	function isError(r) { return r instanceof ParseError || r instanceof FatalError; }
+	function splice_void(r,push_method) {
+		if(!isError(r)) return r;
+		if(r.why instanceof Array) {
+			var res = [];
+			for(var i=0; i<r.why.length; i++) {
+				var cur = splice_void(r.why[i],push_method);
+				if(isError(cur) && cur.what==='')
+					if(cur.why instanceof Array)
+						if(isFatal(cur) && 
+						cur.why.length>0 && isError(cur.why[0]) && !isFatal(cur.why[0]))
+							push_method(res,cur);
+						else
+							for(var j=0; j<cur.why.length; j++)
+								push_method(res,cur.why[j]);
+					else
+						push_method(res,cur.why);
+				else res.push(cur);
+			}
+			if(res.length==1)
+				r.why = res[0];
+			else
+				r.why = res;
+		}
+		else if(isError(r.why))
+			if(r.why.what==='')
+				r.why = splice_void(r.why,push_method).why;
+			else
+				r.why = splice_void(r.why,push_method);
+		return r;
+	}
+
+	function simplify(err) {
+		if(isError(err) && err.what==='')
+			if(err.why instanceof Array)
+				if(err.why.length===1)
+					return err.why[0]
+				else return err;
+			else
+				return err.why;
+		else return err;
+	}
+	if(err instanceof FatalError) {
+		//извлекает из последних фаталов парс-эрроры
+		var parses = cut_parse(err);
+		//безымянные FatalError-ы вклеивает в родительские и сортирует по убыванию позиции
+		err = simplify(splice_void(err, (arr,x)=>{
+			if(isFatal(x)) {
+				for(var i=arr.length-1; i>=0 && isFatal(arr[i]) && arr[i].where<x.where; i--)
+					;
+				i++
+				arr.splice(i,0,x)
+			}
+			else
+				arr.unshift(x)
+		}))
+		
+		if(parses!==null) {
+			//безымянные ParsError-ы вклеивает в родительские
+			parses = simplify(splice_void(parses, (arr,x)=>{arr.push(x)} ));
+			if(isError(parses) && parses.what==='' && parses.why instanceof Array) {
+				parses.why.push(err);
+				return fatalCollect(parses.where,parses.why)
+			}
+			else
+				return fatalCollect(parses.where,[parses,err])
+		}
+		else
+			return err;
+	}
+	else if(err instanceof ParseError)
+		return simplify(splice_void(err, (arr,x)=>{arr.push(x)} ))
+	else
+		return err;
+}
+exports.error_prepare = error_prepare;
+test.add_test('/','error_prepare',(path)=>{
+	describe('error_prepare, основное',function(){
+/*
+	p 7 'x'
+	f 2 []
+	------
+	parse
+		p 'x' -> p 'x'
+		p [ p 'x' ] -> p 'x'
+		p [ p 'x', p 'y' ] -> p [ p 'x', p 'y' ]
+		p [ p [ p 'x', p 'y' ], p 'z'] -> p [ p 'x', p 'y', p 'z']
+		p [ p [ p 'x' ] ] -> p 'x'
+	fatal
+		f 'x' -> f 'x'
+		f [ f 'x' ] -> f 'x'
+		f [ f 'x', f 'y' ] -> f [ f 'x', f 'y' ]
+		f [ f [ f 'x', f 'y' ], f 'z'] -> f [ f 'x', f 'y', f 'z']
+		f [ f [ f 'x' ] ] -> f 'x'
+	cut parse
+		f [ p 'x', p 'y', f [p 'a', p 'b', f 'm'], f [ p 'c', p 'd', f 'n']] ->
+			f [ p 'x', p 'y', p 'c', p 'd', f [ f [p 'a', p 'b', f 'm'], f 'n']]
+*/		
+		function p(a,x) {
+			x = x || 0;
+			if(a instanceof Array) return parseCollect(x,a);
+			else return new ParseError(x,a)
+		}
+		function f(a,x) {
+			x = x || 0;
+			if(a instanceof Array) return fatalCollect(x,a);
+			else return new FatalError(x,a)
+		}
+		describe('parse',()=>{
+			it("p 'x' -> p 'x'",()=>{
+				assertPrepareDeepEqual(p('x'),p('x'))
+			})
+			it("p [ p 'x' ] -> p 'x'",()=>{
+				assertPrepareDeepEqual(p([p('x')]),p('x'))
+			})
+			it("p [ p 'x', p 'y' ] -> p [ p 'x', p 'y' ]",()=>{
+				assertPrepareDeepEqual(p([p('x'),p('y')]),p([p('x'),p('y')]))
+			})
+			it("p [ p [ p 'x', p 'y' ], p 'z'] -> p [ p 'x', p 'y', p 'z']",()=>{
+				assertPrepareDeepEqual(p([p([p('x'), p('y')]), p('z')]),p([ p('x'), p('y'), p('z')]))
+			})
+			it("p [ p [ p 'x' ] ] -> p 'x'",()=>{
+				assertPrepareDeepEqual(p([ p([ p('x')])]), p('x'))
+			})
+		})
+		describe('fatal',()=>{
+			it("f 'x' -> f 'x'",()=>{
+				assertPrepareDeepEqual(f('x'),f('x'))
+			})
+			it("f [ f 'x' ] -> f 'x'",()=>{
+				assertPrepareDeepEqual(f([f('x')]),f('x'))
+			})
+			it("f [ f 'x', f 'y' ] -> f [ f 'x', f 'y' ]",()=>{
+				assertPrepareDeepEqual(f([f('x'),f('y')]),f([f('x'),f('y')]))
+			})
+			it("f [ f [ f 'x', f 'y' ], f 'z'] -> f [ f 'x', f 'y', f 'z']",()=>{
+				assertPrepareDeepEqual(f([f([f('x'), f('y')]), f('z')]),f([ f('x'), f('y'), f('z')]))
+			})
+			it("f [ f [ f 'x' ] ] -> f 'x'",()=>{
+				assertPrepareDeepEqual(f([ f([ f('x')])]), f('x'))
+			})
+		})
+		describe('cut parse',()=>{
+			it("f [ p 'x', p 'y', f [p 'a', p 'b', f 'm'], f [ p 'c', p 'd', f 'n']] ->\
+ f [ p 'x', p 'y', p 'c', p 'd', f [ f [p 'a', p 'b', f 'm'], f 'n']]",()=>{
+				assertPrepareDeepEqual(
+					f([ p('x'), p('y'), f([p('a'), p('b'), f('m')]), f([ p('c'), p('d'), f('n')])]),
+					f([ p('x'), p('y'), p('c'), p('d'), f([ f([p('a'), p('b'), f('m')]), f('n')])])
+				)
+			})
+		})
+	})
+})
+
+//}
+//{ === ОСНОВА ===
+/*
+всвязи с особенностями работы LL-парсеров возможна такая ситуация, когда
+последний необязательный элемент был неудачно прочитан, 
+но поскольку он необязательный - это не ошибка
+но поскольку он последний, после него не пытаются распарсится другие паттерны
+а просто остаются неразобранные символы.
+При этом информация о последней ошибке (последних ошибках) отсутствует.
+
+Стоит отметить, что это касается только фатальных ошибок.
+
+как это работает:
+каждая функция вначале запоминает tail_error локально, а глобально - обнуляет.
+rep и opt  могут туда что-то добавить.
+когда произошла фатальная ошибка или 
+		ничего не прочитано (это если например последовательно идет opt(),opt() )
+	локальный (т.е. предыдущий глобальный) и текущий глобальный tail_error-ы - объединяются
+	и становятся значением tail_error
+иначе taile_error остается текущим глобальным
+*/
+var tail_error = []; // GLOBAL VARIABLE for tail error
+// var parser_debug; // GLOBAL VARIABLE for debug
 
 //строка должна соответствовать паттерну от начала и до конца
 //иначе ParseError(pos.x,'остались неразобранные символы',r)
@@ -137,15 +454,15 @@ function read_all(str, pos, pattern) {
 		if(pos.x == str.length)
 			return r;
 		else
-			return err_tail(pos.x,tail_error);
+			return fatalCollect(pos.x,tail_error);
 	}
-	else if(tail_error.length!==0 && isFatal(r)) {
-		tail_error.push(r);
+	else if(isFatal(r) && tail_error.length!==0) {
+		push_err(tail_error,r);
 		var where = 0;
 		for(var i=0; i<tail_error.length; i++)
 			if(tail_error[i].where > where)
 				where = tail_error[i].where;
-		return err_tail(where,tail_error)
+		return fatalCollect(where,tail_error)
 	}
 	else {
 		if(r===undefined)
@@ -154,49 +471,7 @@ function read_all(str, pos, pattern) {
 			return r;
 	}
 }
-
-var err_filtered = (x,why)=>new FatalError(x,'отфильтрованные ошибки:',why);
-exports.err_filtered = err_filtered;
-
-function error_prepare(r) {
-	if(notFatal(r) || r.why===undefined) return r;
-	if(false){//r.what==='unparsed chars are remained' || r.what==='в тексте присутствует одна из ошибок:') {
-		return new FatalError(r.where,r.what,r.why.map(r=>new FatalError(r.where,r.what)))
-		// r.why.forEach(r=>{delete r.why});
-		return r;
-	}
-
-	var accum = err_filtered(r.where,[]);
-	var path = [];
-	function for_why(r) {
-		if(Array.isArray(r.why)) {
-			path.push(r);
-			r.why.forEach(for_why)
-			path.pop();
-		}
-		else if(r.why!==undefined && isFatal(r.why)) {
-			path.push(r);
-			for_why(r.why);
-			path.pop();
-		}
-		else {
-			/*
-			r.why = path.map(x=>new FatalError(x.where,x.what)).filter(x=>
-				x.what!=='произошли следующие ошибки: ' &&
-				x.what!=='не удалось прочитать ни одну из альтернатив' &&
-				x.what!=='unparsed chars are remained'
-			).reverse();
-			*/
-			accum.why.push(r);
-		}
-	}
-	for_why(r);
-	accum.why.sort((l,r)=>r.where-l.where);
-	//accum.why = accum.why.filter(x=>x.where==accum.why[0].where)
-	accum.where = accum.why[0].where
-	return accum;
-}
-exports.error_prepare = error_prepare;
+exports.read_all = read_all
 
 // основной конструктор
 function Pattern(exec) {
@@ -229,17 +504,25 @@ function Pattern(exec) {
 				return new Pattern(function pattern_then_reserr(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (!isGood(r)) ?
-						error_transform(x,r) :
-						transform(r,x);
+					if(!isGood(r)) {
+						r = error_transform(x,r);
+						delete r.res;
+						return r;
+					}
+					else
+						return transform(r,x);
 				});
 			else
 				return new Pattern(function pattern_then_err(str,pos/*.x*/) {
 					var x = pos.x;
 					var r = exec(str, pos);
-					return (!isGood(r)) ?
-						error_transform(x,r) :
-						r;
+					if(!isGood(r)) {
+						r = error_transform(x,r);
+						delete r.res;
+						return r;
+					}
+					else
+						return r;
 				});
 		}
 		else if(typeof transform === 'function')
@@ -247,7 +530,7 @@ function Pattern(exec) {
 				var x = pos.x;
 				var r = exec(str, pos);
 				return (!isGood(r)) ?
-					r :
+					(delete r.res, r) :
 					transform(r,x);
 			});
 	}
@@ -255,12 +538,17 @@ function Pattern(exec) {
 		return new Pattern()
 	}
 }
+exports.Pattern = Pattern;
 // usage: var p = new Forward; /* some using p */; p.pattern = pattern(of(what,you,wantgs));
 function Forward(){
 	var self = this;
-	this.exec = function forward_exec(){	return self.pattern.exec.apply(self.pattern,arguments);	}
-	this.then = function forward_then(){	return self.pattern.then.apply(self.pattern,arguments);	}
+	this.exec = function forward_exec(){ return self.pattern.exec.apply(self.pattern,arguments); }
+	this.then = function forward_then(){ return self.pattern.then.apply(self.pattern,arguments); }
 }
+exports.Forward = Forward;
+
+//}
+//{ === TXT ===
 
 var err_txt = (x,text)=>new FatalError(x,'ожидалось \''+text+'\'');
 exports.err_txt = err_txt;
@@ -273,9 +561,15 @@ function read_txt(str, pos, text) {
 	}
 	return err_txt(pos.x,text);
 }
+exports.read_txt = read_txt;
+
 function txt(text) {
 	return new Pattern((str,pos)=>read_txt(str,pos,text));
 }
+exports.txt = txt;
+
+//}
+//{ === RGX ===
 
 var err_rgx = (x,text)=>new FatalError(x,'text not match regexp /'+text+'/');
 exports.err_rgx = err_rgx;
@@ -291,6 +585,8 @@ function read_rgx(str, pos, regexp) {
 	}
 	return err_rgx(pos.x,regexp.source)
 }
+exports.read_rgx = read_rgx;
+
 //если в начале regexp не стоит ^, то она будет поставлена автомамтически
 function rgx(regexp) {
 	console.assert(regexp instanceof RegExp, 'в rgx передан аргумент неправильного типа');
@@ -300,122 +596,85 @@ function rgx(regexp) {
 	}
 	return new Pattern((str,pos)=>read_rgx(str,pos,regexp));
 }
+exports.rgx = rgx;
 
-// ошибку или ничего преобразует в неошибку
+//}
+//{ === OPT ===
+
+// фатальную ошибку или ничего преобразует в неошибку
 // позицию восстанавливает, если ошибка
 function read_opt(str, pos, pattern, def={err:0}/*не ошибка*/) {
 	var x = pos.x;
 	var r = pattern(str, pos)
-	if(!isGood(r))	{
+	if(isFatal(r))	{
 		pos.x=x;
-		tail_error.push(r);
+		push_err(tail_error,r);
 		return def;
 	}
 	return r;
 }
+exports.read_opt = read_opt;
+
 function opt(pattern,def={err:0}) {
 	return new Pattern((str,pos)=>read_opt(str,pos,pattern.exec,def));
 }
+exports.opt = opt;
+
+//}
+//{ === SEQ ===
 
 // читает последовательность, в случае неудачи позицию НЕ восстанавливает
-// если ParseError - чтение продолжается, если FatalError - чтение сразу завершается с FatalError, 
-// и то же произойдет в последовательности предыдущего уровня
-//от isFatal зависит, что будет включено в ответ
-function read_seq(str, pos, isFatal, patterns) {
-	var res = {a:[]}; // a - array
-	for (var i = 0; i < patterns.length; i++) {
-		var r = { res : patterns[i](str, pos) };
-		if( isFatal(res,r,i,pos.x) )
-			return r.res;
+function read_seq(str, pos, needed, patterns) {
+	var res = [], errs = [];
+	var x = pos.x;
+	for(var i=0; i<patterns.length; i++) {
+		var r = patterns[i](str,pos);
+		if(isFatal(r)) {
+			if(errs.length>0){
+				push_err(errs,r);
+				return fatalCollect(x,errs);
+			}
+			else
+				return r;
+		}
+		else {
+			if(needed.indexOf(i)!=-1)
+				res.push(r);
+			if(!isGood(r))
+				push_err(errs,r);
+		}
 	}
-	return res.a;
-}
-function seq(isFatal/*(res//.a//,r//.res//,i,pos)*/, ...patterns) {
-	if(!isFatal.is_isFatal) throw new Error('вы забыли указать need в seq')
-	return new Pattern((str,pos)=>read_seq(str,pos,isFatal,patterns.map(pattern=>pattern.exec)));
-}
-
-// какие результаты из последовательности паттернов включать в ответ
-// в случае ParseError у результата устанавливает .err=1 и .what = массиву ошибок ParseError
-// а также сам ParseError добавиться в массив и в массив ошибок
-function need_all(res/*.a*/,r/*.res*/,i,pos) { // isFatal()
-	if(isFatal(r.res))
-		return true;
-	if(!isGood(r.res)) {
-		if(isGood(res.a))
-			res.a = new ParseError(pos,[],res.a);
-		res.a.what.push(r.res);
-	}
-	if(isGood(res.a))
-		res.a.push(r.res);
+	if(errs.length>0)
+		return parseCollect(x,errs,res);
 	else
-		res.a.res.push(r.res)
+		if(res.length==1)
+			return res[0];
+		else
+			return res;
+}
+exports.read_seq = read_seq;
 
-	return false;
+function need_all(len) {
+	var arr=[];
+	for(var i=0; i<len; i++)
+		arr.push(i);
+	return arr;
 }
-need_all.is_isFatal = true;
-// в случае ParseError у результата устанавливает .err=1 и .what = массиву ошибок ParseError
-function need_none(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
-	if(!notFatal(r.res))
-		return true;
-	if(!isGood(r.res)) {
-		if(isGood(res.a))
-			res.a = new ParseError(pos,[],res.a);
-		res.a.what.push(r.res);
-	}
-	return false;
+exports.need_all = need_all;
+function need(...nums) { return (len)=>nums; }
+exports.need = need;
+var need_none = [];
+exports.need_none = need_none;
+
+function seq(needed, ...patterns) {
+	patterns = patterns.map(pattern=>pattern.exec);
+	if(typeOf(needed)=='function') needed = needed(patterns.length);
+	return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
 }
-need_none.is_isFatal = true;
-function need(...indexes){
-	// резултат - после прочтения одного паттерна
-	// ответ - результат всего seq
-	if(indexes.length == 0)
-		// + ВСЕ одиночные результаты добавляет в ответ как в массив
-		throw 'непонятно, что включать в ответ';
-	if(indexes.length == 1) {
-		// + единственный нужный результат становится ответом
-		function need_one(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
-			if(!notFatal(r.res))
-				return true;
-			if(!isGood(r.res)) {
-				if(isGood(res.a))
-					res.a = new ParseError(pos,[],res.a);
-				res.a.what.push(r.res);
-			}
-			if(i==indexes[0]) {
-				if(isGood(res.a))
-					res.a = r.res;
-				else
-					res.a.res = r.res;
-			}
-			return false;
-		}
-		need_one.is_isFatal = true;
-		return need_one;
-	}
-	else {
-		// + добавляет результаты в заданные позиции ответа
-		function need_indexes(res/*.a*/,r/*.res*/,i,pos){ // isFatal()
-			if(!notFatal(r.res))
-				return true;
-			if(!isGood(r.res)) {
-				if(isGood(res.a))
-					res.a = new ParseError(pos,[],res.a);
-				res.a.what.push(r.res);
-			}
-			var k = indexes.indexOf(i);
-			if(k!=-1) {
-				if(isGood(res.a))
-					res.a[k] = r.res;
-				else
-					res.a.res[k] = r.res;
-			}
-			return false;
-		}
-		need_indexes.is_isFatal = true;
-		return need_indexes;
-	}
-}
+exports.seq = seq;
+
+//}
+//{ === REP ===
 
 // в начале читает pattern, потом последовательность separated
 // ответ - массив результатов паттернов
@@ -424,41 +683,45 @@ function read_rep(str, pos, pattern, separated, min, max) {
 	min = min===undefined ? 0 : min;
 	max = max===undefined ? +Infinity : max;
 
-	var res = [], x = pos.x
+	var res = [], errs = [], x = pos.x
 	var i=0;
 	for(;i<min; i++) {
 		var r = i==0 ? pattern(str,pos) : separated(str,pos);
-		if(isFatal(r)) return r;
-		if(!isGood(r)) {
-			if(isGood(res))
-				res = new ParseError(x,[],res);
-			res.what.push(r);
+		if(isFatal(r)) {
+			if(errs.length>0){
+				push_err(errs,r);
+				return fatalCollect(x,errs);
+			}
+			else
+				return r;
 		}
-		if(isGood(res))
+		else {
 			res.push(r);
-		else
-			res.res.push(r)
+			if(!isGood(r))
+				push_err(errs,r);
+		}
 	}
 	for(;i<max; i++) {
 		x = pos.x;
 		var r = i==0 ? pattern(str,pos) : separated(str,pos);
 		if(isFatal(r)) {
 			pos.x = x;
-			tail_error.push(r);
+			push_err(tail_error,r);
 			return res;
 		}
-		if(!isGood(r)) {
-			if(isGood(res))
-				res = new ParseError(x,[],res);
-			res.what.push(r);
-		}
-		if(isGood(res))
+		else {
 			res.push(r);
-		else
-			res.res.push(r)
+			if(!isGood(r))
+				push_err(errs,r);
+		}
 	}
-	return res;
+	if(errs.length>0)
+		return parseCollect(x,errs,res);
+	else
+		return res;
 }
+exports.read_rep = read_rep;
+
 // читает последовательность паттернов, разделенных сепаратором
 // если указан then - с его помощью обрабатываются пары seq(need(), separator, pattern)
 // options = {min,max}
@@ -472,45 +735,37 @@ function rep(pattern, options, separator, then) {
 
 	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
 }
-var star = {min:0,max:Infinity};
+exports.rep = rep;
 
-var err_any = (x,why)=>new FatalError(x,'alternatives:',why);
-exports.err_any = err_any;
+var star = {min:0,max:Infinity};
+exports.star = star;
+
+//}
+//{ === ANY ===
 
 // перебирает паттерны с одной и той же позиции до достижения удачного результата
-// от isGood зависит, будут ли собираться ошибки
-function read_any(str, pos/*.x*/, isGood, patterns) {
+function read_any(str, pos/*.x*/, patterns) {
 	var x = pos.x;
-	var errs = {a:err_any(pos.x,[])};
-	for (var r, i = 0; i < patterns.length; i++){
-		pos.x = x; // что бы у isGood была возможность выставить pos перед выходом из цикла
-		r = patterns[i](str, pos)
-		if( isGood(errs,r,i,pos) )
+	var errs = [];
+	for (var i = 0; i < patterns.length; i++){
+		pos.x = x;
+		var r = patterns[i](str, pos)
+		if( !isFatal(r) )
 			return r;
+		else
+			push_err(errs,r);
 	}
-	return errs.a;
+	return fatalCollect(x,errs);
 }
-function any(isGood, ...patterns) {
-	if(!isGood.is_isGood) throw new Error('вы забыли указать (not)collect в any');
-	return new Pattern((str,pos)=>read_any(str,pos,isGood,patterns.map(pattern=>pattern.exec)));
-}
-//сначала надо указывать попытки удачного прочтения,
-//а только потом попытки восстановления после ошибок
+exports.read_any = read_any;
 
-//неудачные результаты собирает в what как в массив
-function collect(errs/*.a*/,r,i,pos/*.x*/){ // isGood
-	if(isGood(r))  return true;
-	if(!r)         return false;
-	errs.a.why.push(r)//collect
-	return false;
+function any(...patterns) {
+	patterns = patterns.map(pattern=>pattern.exec);
+	return new Pattern((str,pos)=>read_any(str,pos,patterns));
 }
-collect.is_isGood = true;
+exports.any = any;
 
-//ничего не собирает
-function notCollect(errs/*.a*/,r,i,pos/*.x*/){//isGood
-	return isGood(r);
-}
-notCollect.is_isGood = true;
+//}
 
 // #todo как понадобится - доделать
 function exc(pattern, except) {
@@ -518,35 +773,6 @@ function exc(pattern, except) {
 		return !isGood(except.exec(str, pos)) && pattern.exec(str, pos);
 	});
 }
-
-exports.ParseError = ParseError;
-exports.FatalError = FatalError;
-exports.isGood = isGood;
-exports.notFatal = notFatal;
-exports.isFatal = isFatal;
-exports.addErrMessage =  addErrMessage;
-exports.read_all = read_all
-exports.Pattern = Pattern;
-exports.Forward = Forward;
-
-exports.read_txt = read_txt;
-exports.txt = txt;
-exports.read_rgx = read_rgx;
-exports.rgx = rgx;
-exports.read_opt = read_opt;
-exports.opt = opt;
-exports.read_seq = read_seq;
-exports.seq = seq;
-exports.need_all = need_all;
-exports.need_none = need_none;
-exports.need = need;
-exports.read_rep = read_rep;
-exports.rep = rep;
-exports.star = star;
-exports.read_any = read_any;
-exports.any = any;
-exports.collect = collect;
-exports.notCollect = notCollect;
 //exports.exc = exc;
 
 }

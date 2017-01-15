@@ -9,14 +9,15 @@ function main(module, exports, require) {
 			assert.deepEqual(expected,real);
 		}
 		catch(err){
-			err.message+='\nexpected: '+JSON.stringify(expected,'',4)+
-				'\nreal: '+JSON.stringify(real,'',4)+
-				'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
+			err.message+='\nreal: '+JSON.stringify(real,'',4)+
+			'\nexpected: '+JSON.stringify(expected,'',4)+
+			'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
 			throw err
 		}
 	}
 	exports.assertDeepEqual = assertDeepEqual;
 	function assertPrepareDeepEqual(real,expected){
+		//return assertDeepEqual(real,expected)
 		try {
 			assertDeepEqual(error_prepare(real),expected);
 		}

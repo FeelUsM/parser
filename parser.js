@@ -5,12 +5,49 @@ function main(module, exports, require) {
 
 copyProps(require('meta_parser'),window);
 var test = require('parser_test_utils');
-
+/*
+exports.err_spc = err_spc;
+//exports.spc = spc;
+exports.err_num = err_num;
+exports.err_id = err_id;
+exports.err_qseq = err_qseq;
+//exports.quotedSequence = quotedSequence;
+exports.err_char = err_char;
+//exports.reg_char = reg_char;
+//exports.bnf_char = bnf_char;
+exports.err_classChar = err_classChar;
+//exports.reg_classChar = reg_classChar;
+//exports.bnf_classChar = bnf_classChar;
+exports.err_inClass = err_inClass;
+//exports.reg_class = reg_class;
+//exports.bnf_class = bnf_class;
+exports.err_link = err_link;
+exports.err_quant = err_quant;
+exports.reg_quantifier = reg_quantifier;
+//exports.quantifier = quantifier;
+exports.err_string = err_string;
+//exports.string = string;
+exports.err_obj = err_obj;
+//exports.object = object;
+//exports.pre_code = pre_code;
+//exports.modifier = modifier;
+//exports.fake_modifier = fake_modifier;
+exports.err_reg_sequence = err_reg_sequence;
+exports.reg_sequence = reg_sequence;
+exports.err_fail_not = err_fail_not;
+//exports.fake_reg_sequence = fake_reg_sequence;
+//exports.bnf_sequence = bnf_sequence;
+*/
 /* todo
-разобраться с политикой предоставления ошибок    
+разобраться с политикой предоставления ошибок в parser-е
 чтоб в sequence_compile и alternatives_compile поступало как начало последовательности, так и ее кеонец
 2 режима: 'strict' и его отсутствие, когда в объектных последовательностях и циклах(?) 
 	?= "ставилось" автоматически, когда отсутствует
+чтобы direct obj последовательность проверяля, что все obj последовательности, которые она вызывает - тоже direct
+одиночны link-и - убрать из синтаксиса
+(?`...`?(...):(....))
+получать на вход обработчика ошибки как дочерние ошибки, так и удачные результаты(?)
+ - ParseError - возвращается функцией и возвращается как результат.
 
 распределить старые тесты по имеющимся рубрикам и в фишка code
 задать расположение фишки link & back_pattern, и немного позаполнять
@@ -233,7 +270,7 @@ test.add_test('/','bnf_char',(path)=>{
 })
 
 // возвращает символ
-var err_classChar = (x)=>new FatalError(x,'ожидался символ класса');
+var err_classChar = (x)=>new FatalError(x,'ожидался символ класса символов');
 exports.err_classChar = err_classChar;
 // reg_classChar ::= [^\\\/\``^-;|$.*+?()[]{}`] | `\\`.
 //		(?#к управляющим символам добавляется `^-`, пробелы разрешены);
@@ -280,14 +317,14 @@ var escaper = (s)=>{
 	//console.log('replace: '+r);
 	return r;
 }
-var err_inClass = (x,why)=>new FatalError(x,'в классе',why);
+var err_inClass = messageAdder('класс символов');
 exports.err_inClass = err_inClass;
 //	reg_class ::= `.` | `[``^`? ($reg_classChar(`-`$reg_classChar)? |$quotedSequence )*`]` ;
-var reg_class = any(collect,
+var reg_class = any(
 	txt('.'),
 	seq(need_all, 
 		txt('['), opt(txt('^'),''),
-		rep(any(collect, 
+		rep(any( 
 			seq(need_all, 
 				reg_classChar.then(escaper), opt(seq(need_all, txt('-'), reg_classChar.then(escaper)).then(merger),'')
 			).then(merger),
@@ -299,15 +336,16 @@ var reg_class = any(collect,
 	s=>new RegExp(s),
 	err_inClass
 );
+reg_class.exec('[');
 //exports.reg_class = reg_class;
 test.add_test('/','reg_class',(path)=>{
 	describe('reg_class ::= `.`|`[``^`? ($reg_classChar(`-`$reg_classChar)? |$quotedSequence )*`]`'
 	+' (?#возвращает регексп (без галки вначале))',()=>{
-		it_err_compile(	''			,()=>err_filtered(0,[err_txt(0,'.'),err_txt(0,'[')]),
+		it_err_compile(	''			,()=>fatalCollect(0,[err_txt(0,'.'),err_txt(0,'[')]),
 			compile(reg_class));
 		it_compile(		'.'			,/./												,
 			compile(reg_class))
-		it_err_compile(	'['			,()=>err_filtered(1,[
+		it_err_compile(	'['			,()=>new FatalError(1,'',[
 			err_txt(1,'^'),err_classChar(1),err_qseq(1),err_txt(1,']'),err_txt(0,'.')])	,
 			compile(reg_class))
 		it_compile(		'[]'		,/[]/												,
@@ -324,7 +362,7 @@ test.add_test('/','reg_class',(path)=>{
 			compile(reg_class))
 		it_compile(		'[\\$-\\^]'	,/[\$-\^]/											,
 			compile(reg_class))
-		it_err_compile(	'[a-]'		,()=>err_filtered(3,[
+		it_err_compile(	'[a-]'		,()=>fatalCollect(3,[
 			err_classChar(3),err_classChar(2),err_qseq(2),err_txt(2,']'),err_txt(0,'.')]),
 			compile(reg_class))
 		it_compile(		'[a\\-]'	,/[a\-]/											,
@@ -333,11 +371,11 @@ test.add_test('/','reg_class',(path)=>{
 })
 // bnf_class ::= `.` | `[``^`? $spcs ($bnf_classChar(`-`$bnf_classChar)? $spcs 
 //	|$quotedSequence $spcs)*`]` ;
-var bnf_class = any(collect,
+var bnf_class = any(
 	txt('.'),
 	seq(need_all, 
 		txt('['), opt(txt('^'),''), spcs, 
-		rep(any(collect, 
+		rep(any( 
 			seq(need_all, 
 				bnf_classChar.then(escaper), 
 				opt(seq(need_all, txt('-'), bnf_classChar.then(escaper)).then(merger),''),
@@ -372,25 +410,25 @@ quantifier ::= [`*+?`] | `{`$spcs(`,`$spcs$num|$num($spcs`,`$spcs$num?)?)$spcs`}
 var err_link = (x)=>new FatalError(x,'ожидалась ссылка');
 exports.err_link = err_link;
 var link = seq(need(1),txt('$'),
-	any(collect,identifier,
+	any(identifier,
 		seq(need(1),txt('{'),identifier,txt('}')))
 ).then(id=>({link:id}),err_link);
 /* todo так и остаются, но через sequence & alternatives накапливаются и доходят до корня, 
 	чтобы можно было осуществить проверку на битые ссылки*/
 
 // возвращает строку или регексп или ссылку на паттерн
-var reg_symbol = any(collect,reg_char,quotedSequence,reg_class,link).then(0,err_char);
-var bnf_symbol = any(collect,bnf_char,quotedSequence,bnf_class,link).then(0,err_char);
+var reg_symbol = any(reg_char,quotedSequence,reg_class,link).then(0,err_char);
+var bnf_symbol = any(bnf_char,quotedSequence,bnf_class,link).then(0,err_char);
 
 // возвращет объект {min:int,max:int}
 var err_quant = (x)=>new FatalError(x,'ожидался квантификатор');
 exports.err_quant = err_quant;
-/* var reg_quantifier = any(collect,
+/* var reg_quantifier = any(
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
 	seq(need(1),txt('{'),
-		any(collect,
+		any(
 			seq(need(1),txt(','),num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
@@ -406,12 +444,12 @@ exports.err_quant = err_quant;
 ).then(0,err_quant);
 exports.reg_quantifier = reg_quantifier;
 */
-var quantifier = any(collect,
+var quantifier = any(
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
 	seq(need(2),txt('{'),spcs,
-		any(collect,
+		any(
 			seq(need(2),txt(','),spcs,num).then(n=>({min:0,max:n})),
 			seq(need_all,
 				num,
@@ -478,12 +516,15 @@ error - означает, что обработчик вызовется для 
 кинутые исключения - записываются в modifier_throws и error_modifier_throws
 	todo: сделать для каждого объекта свой
 	а результат становится undefined, а если это обработка ошибки, то она не меняется
+в any, rep & opt - чтоб создавали вместо global объект у которого __proto__ = global
+в случае удачи - копировали свойства в global, неудачи - просто выкидывали этот объект
++ чтоб родительские свойства были const
 */
 //{
 // string ::= `'` ([^'\\]|\\'|\\\\)* `'` | `"` ([^"\\]|\\"|\\\\)* `"`;
 var err_string = (x)=>new FatalError(x,'не могу прочитать строку js');
 exports.err_string = err_string;
-var string = any(collect,
+var string = any(
 	rgx(/^'([^'\\]|\\'|\\\\)*'/).then(m=>m[0]),
 	rgx(/^"([^"\\]|\\"|\\\\)*"/).then(m=>m[0])
 ).then(0, err_string);
@@ -501,7 +542,7 @@ var err_obj = (x)=>new FatalError(x,'не могу прочитать объек
 exports.err_obj = err_obj;
 var object = new Forward();
 object.pattern = seq( need_all, txt('{'),
-	rep(any(collect,
+	rep(any(
 		rgx(/^[^'"\{\}]/).then(m=>m[0]),
 		string,
 		object
@@ -522,7 +563,7 @@ test.add_test('/','object',(path)=>{
 // (?#`error` - обработчик ошибки)
 // (?#`?` - значение по умолчанию: ?`smth`?< эквивалентно ?`arg.length==1?arg[0]:smth`<);
 var pre_code = seq(need(0,1),
-	any(collect,
+	any(
 		seq(need(1),txt('`'),
 			rgx(/^[^`]*/).then(m=>{
 				if(/^\s*\{/.test(m[0]) && /\}\s*$/.test(m[0]))
@@ -533,7 +574,7 @@ var pre_code = seq(need(0,1),
 			txt('`')),
 		object.then(s=>({type:'obj',data:s}))
 	),
-	opt(any(collect,txt('error'),txt('?')),''),
+	opt(any(txt('error'),txt('?')),''),
 	txt('<')
 ).then(([o,mod],x)=>{
 	if(mod=='?')
@@ -651,7 +692,7 @@ modifier ::= `?`
 |	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
 );
 */
-var modifier = seq(need(1), txt('?'), any(collect,
+var modifier = seq(need(1), txt('?'), any(
 	txt('!').then(r=>({type:'not'})),
 	code,
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
@@ -659,16 +700,16 @@ var modifier = seq(need(1), txt('?'), any(collect,
 	txt('toString:').then(s=>({type:'toString'}))
 )).then(0,(x,e)=>err_in(x,'modifier',e));
 //exports.modifier = modifier;
-var fake_modifier = seq(need_none, txt('?'), any(collect,
+var fake_modifier = seq(need_none, txt('?'), any(
 	txt('!'),
 	seq(need_none,
-		any(collect,
+		any(
 			seq(need_none,txt('`'),
 				rgx(/^[^`]*/),
 				txt('`')),
 			object
 		),
-		opt(any(collect,txt('error'),txt('?')),''),
+		opt(any(txt('error'),txt('?')),''),
 		txt('<')
 	),
 	seq(need_none,identifier,txt('->')),   // на будущее
@@ -745,9 +786,9 @@ reg_sequence ::= $modifier* ($link |
 */
 var reg_sequence = seq(need_all,
 	rep(modifier.then(pos_adder)), // модификаторы
-	any(collect,
+	any(
 		link.then((s,x)=>({type:'link',link:s,pos:x})),
-		rep(any(collect, // паттерны
+		rep(any( // паттерны
 			seq(need_all,
 				reg_symbol,
 				opt(quantifier,null)
@@ -778,9 +819,9 @@ fake_reg_sequence ::= $fake_modifier* ($link |
 */
 var fake_reg_sequence = seq(need_all,
 	rep(fake_modifier), // модификаторы
-	any(collect,
+	any(
 		link,
-		rep(any(collect, // паттерны
+		rep(any( // паттерны
 			seq(need_all,
 				reg_symbol,
 				opt(quantifier,null)
@@ -809,9 +850,9 @@ bnf_sequence ::= $modifier* ($spcs $link |
 */
 var bnf_sequence = seq(need_all,
 	rep(modifier.then(pos_adder)), // модификаторы
-	any(collect,
+	any(
 		seq(need(1),spcs,link.then((s,x)=>({type:'link',link:s,pos:x}))),
-		rep(seq(need(1),spcs,any(collect, // паттерны
+		rep(seq(need(1),spcs,any( // паттерны
 			seq(need_all,
 				bnf_symbol,
 				opt(quantifier,null)
@@ -990,6 +1031,7 @@ var err_uncycle = (x,i,name)=>new FatalError(x,'защита от зацикли
 var perr_c_name = x=>new ParseError(x,'объектный цикл должен иметь (возможно пустое) имя')
 var perr_dublicate = (x,name)=>new ParseError(x,'повторно указано: '+name);
 var perr_cycle_bp = x=>new ParseError(x,'цикл не может содержать back_pattern');
+var err_any = (x,why)=>new FatalError(x,'alternatives:',why);
 
 function sequence_compiler([modifiers,patterns],pattern_x){
 	var modifiers_schema = {
@@ -1836,23 +1878,23 @@ test.add_test('/','cat_negate',(path)=>{
 			it_err_parse('ab(?!x)cd','abxcd',()=>err_fail_not(2,'безымянная последовательность'),err_alt)
 			it_err_parse('ab(?!x)cd','abycd',()=>err_rgx(2,/cd/.source),err_alt)
 			it_parse('a|?!x|b','a','a',alt)
-			it_err_parse('a|?!x|b','x',()=>err_filtered(0,[
+			it_err_parse('a|?!x|b','x',()=>fatalCollect(0,[
 				err_rgx(0,/a/.source),
 				err_fail_not(0,'безымянная последовательность')
 				]),err_alt)
 			it_parse('a|?!x|b','b','b',alt)
-			it_err_parse('a|?!x|x','x',()=>err_filtered(0,[
+			it_err_parse('a|?!x|x','x',()=>fatalCollect(0,[
 				err_rgx(0,/a/.source),
 				err_fail_not(0,'безымянная последовательность')
 				]),err_alt)
 			it_parse('a|x|?!x','x','x',alt)
-			it_err_parse('k(a|?!x|b)l','kxl',()=>err_filtered(1,[
+			it_err_parse('k(a|?!x|b)l','kxl',()=>fatalCollect(1,[
 				err_rgx(1,/a/.source),
 				err_fail_not(1,'безымянная последовательность')
 				]),err_alt)
 			it_parse('k|(a|?!x|b)|x','x','x',alt)
 			it_parse('k|(?!x)|x','x','x',alt)
-/*			it_err_parse('k|(?!y)|z','x',()=>err_filtered(1,[
+/*			it_err_parse('k|(?!y)|z','x',()=>fatalCollect(1,[
 				err_rgx(1,/a/.source),
 				err_fail_not(1,'безымянная последовательность')
 				]),err_alt)
@@ -2025,7 +2067,7 @@ test.add_test('/','obj_toString',(path)=>{
 					it_parse('q(w(?n1=e)r|?n1=tyu)i','qtyui',{n1:'tyu'},alt)
 					it_parse('?=x(?=*?=a(?=sd)f|?=q(?=we)r)*y','xasdfasdfqwery',['sd','sd','we'],alt)
 					it_err_compile('?=x(?=a(?=sd)f|q(?=we)r)*y',
-						()=>err_rgx(2,/b/.source),comp_alt)
+						()=>perr_c_name(3),comp_alt)
 				})
 				describe('для обрубания результата всего паттерна',()=>{
 					it_parse('?=q(?=*w)*e','qwwwwe',['w','w','w','w'],alt)
@@ -2046,11 +2088,11 @@ test.add_test('/','obj_toString',(path)=>{
 */
 			describe('?= означает, что промежуточный результат родительской функции нужно заменить полученным результатом (и он может быть не обязательно объектом)',()=>{
 				it_err_compile('?=x(?=a(?=sd)f|q(?=we)r)*y',
-					()=>err_rgx(2,/b/.source),comp_alt)
+					()=>perr_c_name(3),comp_alt)
 			})
 			describe('ну и еще для удобочитаемости',()=>{
 				it_err_compile('qw((?n1=er)(?n2=ty))*ui',
-					()=>err_rgx(2,/b/.source),comp_alt)
+					()=>perr_c_name(2),comp_alt)
 				it_parse('?=qw(?=*(?n1=er)(?n2=ty))*ui','qwertyertyui',
 					[{n1:'er',n2:'ty'},{n1:'er',n2:'ty'}],alt)
 			})
