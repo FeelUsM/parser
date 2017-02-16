@@ -550,7 +550,43 @@ exports.Pattern = Pattern;
 function Forward(){
 	var self = this;
 	this.exec = function forward_exec(){ return self.pattern.exec.apply(self.pattern,arguments); }
-	this.then = function forward_then(){ return self.pattern.then.apply(self.pattern,arguments); }
+	this.then = function forward_then(transform/*(r,x)*/,error_transform/*(x,r)*/) {
+		if(error_transform){
+			console.assert(typeof error_transform === 'function')
+			if(typeof transform === 'function')
+				return new Pattern(function pattern_then_reserr(str,pos/*.x*/) {
+					var x = pos.x;
+					var r = exec(str, pos);
+					if(!isGood(r)) {
+						r = error_transform(x,r);
+						delete r.res;
+						return r;
+					}
+					else
+						return transform(r,x);
+				});
+			else
+				return new Pattern(function pattern_then_err(str,pos/*.x*/) {
+					var x = pos.x;
+					var r = exec(str, pos);
+					if(!isGood(r)) {
+						r = error_transform(x,r);
+						delete r.res;
+						return r;
+					}
+					else
+						return r;
+				});
+		}
+		else if(typeof transform === 'function')
+			return new Pattern(function pattern_then_res(str, pos/*.x*/) {
+				var x = pos.x;
+				var r = exec(str, pos);
+				return (!isGood(r)) ?
+					(delete r.res, r) :
+					transform(r,x);
+			});
+	}
 }
 exports.Forward = Forward;
 
@@ -661,6 +697,34 @@ function read_seq(str, pos, needed, patterns) {
 }
 exports.read_seq = read_seq;
 
+// читает последовательность, в случае неудачи позицию НЕ восстанавливает
+function read_seqn(str, pos, needed, patterns) {
+	var res = {}, errs = [];
+	var x = pos.x;
+	for(var i=0; i<patterns.length; i++) {
+		var r = patterns[i](str,pos);
+		if(isFatal(r)) {
+			if(errs.length>0){
+				push_err(errs,r);
+				return fatalCollect(x,errs);
+			}
+			else
+				return r;
+		}
+		else {
+			if(needed[i]!==undefined)
+				res[needed[i]]=r;
+			if(!isGood(r))
+				push_err(errs,r);
+		}
+	}
+	if(errs.length>0)
+		return parseCollect(x,errs,res);
+	else
+		return res;
+}
+exports.read_seq = read_seq;
+
 function need_all(len) {
 	var arr=[];
 	for(var i=0; i<len; i++)
@@ -676,7 +740,26 @@ exports.need_none = need_none;
 function seq(needed, ...patterns) {
 	patterns = patterns.map(pattern=>pattern.exec);
 	if(typeOf(needed)=='function') needed = needed(patterns.length);
-	return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
+	if(typeOf(needed)=='object') {
+		var nd=[];
+		if(patterns.length===0){
+			var i=0;
+			for(var name in needed){
+				if(!/^none/.test(name))
+					nd[i]=name;
+				patterns.push(needed[name])
+				i++;
+			}
+			return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns));
+		}
+		else {
+			for(var name in needed)
+				nd[needed[name]]=name;
+		}
+		return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns));
+	}
+	else
+		return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
 }
 exports.seq = seq;
 
@@ -767,6 +850,8 @@ function read_any(str, pos/*.x*/, patterns) {
 exports.read_any = read_any;
 
 function any(...patterns) {
+	if(patterns.length===1 && typeOf(patterns[0])=='array')
+		patterns = patterns[0];
 	patterns = patterns.map(pattern=>pattern.exec);
 	return new Pattern((str,pos)=>read_any(str,pos,patterns));
 }
