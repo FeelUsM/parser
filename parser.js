@@ -91,7 +91,6 @@ red._exec(str)
 	function toLowercase
 */
 
-
 /* === синтаксис ===
 (?#=== обычные токены ===)
 spc :=[\ \r\n\t\v\f];
@@ -131,20 +130,16 @@ handler ::= (`/*`|`/error*`)(?!`*``/`|.)*`*``/`
 reg_sequence ::= $modifier*
 ((	$reg_symbol $quantifier?	|	$comment
 | 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
-)* $handler*) `*`? $handler*;
-bnf_sequence ::= $modifier* 
-(($spcs($bnf_symbol $quantifier?	|	$comment
-| 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
-)* ($spcs $handler)*) `*`? ($spcs $handler)*;
+) $handler*)* `*`? $handler*;
 reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+
+bnf_sequence ::= $modifier*
+($spcs(	$reg_symbol $quantifier?	|	$comment
+| 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
+) ($spcs $handler)*)* `*`? ($spcs $handler)*;
 bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
 
-(?#=== начало ===)
-expr ::= $spcs $identifier $spcs (`:=`$reg_alternatives | `::=` $spcs $bnf_alternatives $spcs );
-main ::= $expr(`;` $comment? $expr)* `;`? ;
-
 (?#=== комментарии ===)
-comment ::= `(?#` ($modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
 (?#fake_... - синтаксис такой же как у настоящего, только не происходит обработка)
 fake_handler ::= (`/*`|`/error*`)(?!`*``/`|.)*`*``/`
 fake_reg_sequence ::= $modifier*
@@ -152,6 +147,12 @@ fake_reg_sequence ::= $modifier*
 | 	`(`   (     $modifier*        `*`)?           $fake_reg_alternatives       `)` $quantifier?
 )* $fake_handler*) `*`? $fake_handler*;
 fake_reg_alternatives      ::= $fake_reg_sequence      (      `|`$fake_reg_sequence     )*;
+comment ::= `(?#` ($modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
+
+(?#=== начало ===)
+expr ::= $spcs $identifier $spcs (`:=`$reg_alternatives | `::=` $spcs $bnf_alternatives $spcs );
+main ::= $expr(`;` $comment? $expr)* `;`? ;
+
 */
 
 Error.prototype.toJSON = function(){ return {name:this.name,message:this.message} }
@@ -394,6 +395,7 @@ var bnf_symbol = any(bnf_char,quotedSequence,bnf_class,link).then(0,err_char);
 
 //{ ==== квантификаторы, модификаторы и обработчики ====
 
+test.add_category('/','QuantModifHandl','');
 // quantifier ::= [`*+?`] | `{`$spc*(`,`$spc*$num|$num($spc*`,`$spc*$num?)?)$spc*`}` 
 //(?#пока только энергичные);
 // возвращет объект {min:int,max:int}
@@ -418,9 +420,18 @@ var quantifier = any(
 		),
 	spcs,txt('}'))
 ).then(0,err_quant);
-test.add_test('/','quantifier',(path)=>{
+var quantifier_schema = {
+	id:'quantificator',
+	type:['null','object'],
+	requiredProperties:{
+		min:{ type:'integer' },
+		max:{ type:'integer' }
+	},
+	additionalProperties:false,
+}
+test.add_test('/QuantModifHandl','quantifier',(path)=>{
 	describe('quantifier ::= [`*+?`] | `{`$spcs(`,`$spcs$num|$num($spcs`,`$spcs$num?)?)$spcs`}`\
- (?#пока только энергичные)',()=>{
+ (?#пока только энергичные) (?#возвращет объект {min:int,max:int})',()=>{
 		it_compile('+'		,{min:1,max:Infinity}	,compile(quantifier))
 		it_compile('{3,5}'	,{min:3,max:5}			,compile(quantifier))
 		it_compile('{3}'	,{min:3,max:3}			,compile(quantifier))
@@ -430,12 +441,14 @@ test.add_test('/','quantifier',(path)=>{
 	})
 })
 
-// modifier ::= `?`
-//(	`!` (?#отрицание)
-//|	$identifier`->` (?#back_pattern)
-//|	$identifier?`=` (?#имя последовательности)
-//|	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
-//);
+/* modifier ::= `?`
+(	`!` (?#отрицание)
+|	$identifier`->` (?#back_pattern)
+|	$identifier?`=` (?#имя последовательности)
+|	`toString:` (?#директива, преобразующая объектную последовательность в строковую)
+);
+*/
+// возвращет объект {type:string[,data:id]}
 /*
 #todo
 back_pattern - создает предложение с именем, равным заданному идентификатору, 
@@ -451,8 +464,32 @@ var modifier = seq(need(1), txt('?'), any(
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
 	txt('toString:').then(s=>({type:'toString'}))
 )).then(0,(x,e)=>err_in(x,'modifier',e));
-test.add_test('/','modifier',(path)=>{
-	describe('modifier ::= `?` (`!` | $identifier`->` |	$identifier?`=` | `toString:` );'
+var modifier_schema = {
+	id:"modifier_schema",
+	type:'object',
+	additionalProperties:false,
+	requiredProperties:{
+		pos:{type:'integer'}
+	},
+	oneOfPropSchemas:[
+		{requiredProperties:{
+			type:{ enum:['returnname'] }, // ?name= ?=
+			data:{ oneOf:[{format:'identifier' },{enum:['']}]}
+		}},
+		{requiredProperties:{
+			type:{ enum:['back_pattern'] }, // ?name->
+			data:{ format:'identifier' }
+		}},
+		{requiredProperties:{
+			type:{ enum:['not'] } // ?!
+		}},
+		{requiredProperties:{
+			type:{ enum:['toString'] } // ?toString:
+		}}
+	]
+};
+test.add_test('/QuantModifHandl','modifier',(path)=>{
+	describe('modifier ::= `?` (`!` | $identifier`->` |	$identifier?`=` | `toString:` );(?#возвращет объект {type:string[,data:id]})'
 	,()=>{
 		describe('(?#отрицание) `!` (?# при удачном прочтении этой скобочной группы возвращается ошибка, а при неудачном - {err:"continue"} - чтобы если такой результат получит $alternatives, то он продолжил перебирать альтернативы, но если удачных альтернатив больше нет, а некоторый результат уже есть, то он будет возвращен. а $sequence считает, как будто это пустая строка)',()=>{
 			it_compile('?!',{type:"not"},compile(modifier))
@@ -471,6 +508,7 @@ test.add_test('/','modifier',(path)=>{
 
 // handler ::= (`/*`|`/error*`)(?!`*``/`|.)*`*``/`
 //(?#`/*код*``//*=>выр-е*``//*?выр-е по умолчанию*``//error*код*``//error*=>выр-е*``//error*?выр-е по умолчанию*``/`)
+// возвращет объект {type:'handler',error:bool,code:Function}
 /*
 обработчики все имеют аргументы (arg, pos), 
 в качестве this - global_modifier_object - todo: сделать для каждого объекта свой
@@ -483,7 +521,6 @@ error - означает, что обработчик вызовется для 
 в случае удачи - копировали свойства в global, неудачи - просто выкидывали этот объект
 + чтоб родительские свойства были const
 */
-var global_modifier_object = {}; 
 var handler = seq(need(0,1,2),
 	any(txt('/*').then(()=>({error:false})),txt('/error*').then(()=>({error:true}))),
 	opt(any(txt('?').then(()=>({type:'default'})),txt('=>').then(()=>({type:'expr'}))),{type:'code'}),
@@ -494,22 +531,30 @@ var handler = seq(need(0,1,2),
 		code = 'return arg.length==1?arg[0]:'+code;
 	else if(type=='expr')
 		code = 'return '+code;
-	try {
-		code = (new Function('arg','pos',code)).bind(global_modifier_object); 
-	}
-	catch(err) {
-		return new ParseError(x,'синтаксическая ошибка в обработчике',err);
-	}
-	return {error,code}
+	return {type:'handler',error,code}
 });
-test.add_test('/','handler',(path)=>{
+Parser.prototype.read_handler = function(str,pos) {
+	// this.handler_global_object
+	return handler.then(({error,code},x)=>{
+		try {
+			code = (new Function('arg','pos',code)).bind(this/*!!!*/.handler_global_object);
+		}
+		catch(err) {
+			return new ParseError(x,'синтаксическая ошибка в обработчике',err);
+		}
+	return {error,code}
+	}).exec(str,pos);
+}
+// Parser.handler = new Pattern(read_handler.bind(this)); - в конструкторе
+test.add_test('/QuantModifHandl','handler',(path)=>{
 	describe('handler ::= (`/*`|`/error*`)(?!`*``/`|.)*`*``/`\
- (?#возвращает {error:bool,code:function}',()=>{
+ (?#возвращает {type:"handler",error:bool,code:function}',()=>{
 		function it_compile_fun(pattern,obj,arg,res,comment='') {
 			it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj)+'   |.data(): '+
 				JSON.stringify(arg)+' --> '+JSON.stringify(res),
 				()=>{
-					var prpat = handler.exec(pattern); // prepared pattern
+					var parser = new Parser;
+					var prpat = parser.handler.exec(pattern); // prepared pattern
 					assertPrepareDeepEqual(prpat,obj);
 					assertPrepareDeepEqual(prpat.code(arg),res);
 				}
@@ -524,10 +569,11 @@ test.add_test('/','handler',(path)=>{
 		it_compile_fun('/*{return "hello world"}*/',
 			{error:false,code:function(arg,pos){ return "hello world";}},
 			'',"hello world",'если в `` есть {}, то оно остается неизменным')
+		var parser = new Parser;
 		it_err_compile('/*=>{return return}*/',()=>new ParseError(0,
 				"синтаксическая ошибка в обработчике",
 				new SyntaxError("Unexpected token return")
-			),compile(handler),'синтаксическая ошибка в обработчике: '
+			),compile(parser.handler),'синтаксическая ошибка в обработчике: '
 		)
 		describe('complicated object',()=>{
 			it_compile_fun('/*=>{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}*/',
@@ -626,70 +672,108 @@ var code = pre_code.then((m,x)=>{
 
 //}
 
-// ================================================================================================
-/* (fake-)reg/bnf-sequence (fake-)reg/bnf-alternatives comment
-comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
-reg_sequence ::= $modifier* ($link |
-(	    $reg_symbol $quantifier?
+//{ ==== синтаксис ядра ====
+var comment = new Forward();
+
+var pos_adder = (m,x)=>{m.pos = x; return m;};
+
+/* reg_sequence ::= $modifier*
+((	$reg_symbol $quantifier?	|	$comment
 | 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
-|	$comment
-)*);
-fake_reg_sequence ::= $fake_modifier* ($link |
-(	    $reg_symbol $quantifier? (?#пробелы в reg_class и quantifier допустимы)
-| 	`(`   ($fake_modifier*        `*`)?      $fake_reg_alternatives       `)` $quantifier?
-|	$comment
-)*);
+) $handler*)* `*`? $handler*;
+*/
+var err_seq_c_modifiers = x=>new PaarseError(x,'модификаторы цикла можно задавать только к циклу');
+exports.err_seq_c_modifiers = err_seq_c_modifiers;
+var err_reg_sequence = (x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e);
+exports.err_reg_sequence = err_reg_sequence;
+Parser.prototype.read_reg_sequence = function(str,pos) {
+	return seq({
+		modifiers: rep(modifier.then(pos_adder)), // модификаторы
+		patterns: 
+			rep(seq({pattern:0,handlers:1},
+				any( // паттерны
+					seq(need_all,
+						reg_symbol,
+						opt(quantifier,null)
+					).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})).then(pos_adder),
+					seq(need(1,2,4),
+						txt('('),
+						opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]),
+						this.reg_alternatives,
+						txt(')'),
+						opt(quantifier,null)
+					).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
+						quant ? {type:'cycle',quant,cycle_modifiers,mode,fun,direct,pos:x} :
+						cycle_modifiers.length>0 ? err_seq_c_modifiers(x) :
+						{type:'pattern',mode,fun,direct,pos:x}),
+					comment.then(pos_adder)
+				),
+				rep(this.handler.then(pos_adder))
+			)),
+		separator: opt(txt('*'),null),
+		hendlers: rep(this.handler.then(pos_adder))
+	}).then(0,err_reg_sequence).exec(str,pos);
+}
+var patterns_schema = {
+	id:'patterns_schema',
+	definitions:{ },
+	type:'object',
+	additionalProperties:false,
+	requiredProperties:{
+		pos:{ type:'integer' }
+	},
+	oneOfPropSchemas:[
+		{requiredProperties:{
+			type:{ enum:['symbol'] },
+			symbol:{ type:['string','RegExp'] },
+			quant:{ $ref:'#quantificator'}
+		}},
+		{allOfPropSchemas:[
+			{requiredProperties:{
+				type:{ enum:['pattern'] }
+			}},
+			{$ref:'#fun_schema'}
+		]},
+		{allOfPropSchemas:[
+			{requiredProperties:{
+				type:{ enum:['cycle'] },
+				quant:{ $ref:'#quantificator'},
+				cycle_modifiers:{ $ref:'modifiers_schema' }
+			}},
+			{$ref:'#fun_schema'}
+		]},
+		{requiredProperties:{
+			type:{ enum:['link'] },
+			link:{ type:'string' }
+		}}
+	]
+};
+
+// reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+
+/*
 bnf_sequence ::= $modifier* ($spcs $link |
 ($spcs(	$bnf_symbol $quantifier?
 | 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
 |	$comment
 ))*);
-reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
-fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
-bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
 */
-//{
-var fake_modifier = seq(need_none, txt('?'), any(
-	txt('!'),
-	seq(need_none,identifier,txt('->')),   // на будущее
-	seq(need_none,opt(identifier,''),txt('=')),
-	txt('toString:')
-)).then(0,(x,e)=>err_in(x,'fake_modifier',e));
-
-var reg_alternatives = new Forward();
 var bnf_alternatives = new Forward();
-var fake_reg_alternatives = new Forward;
-// comment ::= `(?#` ($fake_modifier*     `*`)? $fake_reg_alternatives       `)` $quantifier?
-var comment = seq(need_none,
-	txt('(?#'),	opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),
-	opt(quantifier)
-).then(0,(x,e)=>err_in(x,'comment',e));
-
-
-var pos_adder = (m,x)=>{m.pos = x; return m;};
-var err_seq_c_modifiers = x=>new PaarseError(x,'модификаторы цикла можно задавать только к циклу');
-var err_reg_sequence = (x,e)=>new FatalError(x,'не могу прочитать reg_sequence',e);
-exports.err_reg_sequence = err_reg_sequence;
-/*
-reg_sequence ::= $modifier* ($link |
-(	    $reg_symbol $quantifier?
-| 	`(`   (     $modifier*        `*`)?           $reg_alternatives       `)` $quantifier?
-|	$comment
-)*);
-*/
-var reg_sequence = seq(need_all,
+var bnf_sequence = seq(need_all,
 	rep(modifier.then(pos_adder)), // модификаторы
 	any(
-		link.then((s,x)=>({type:'link',link:s,pos:x})),
-		rep(any( // паттерны
+		seq(need(1),spcs,link.then((s,x)=>({type:'link',link:s,pos:x}))),
+		rep(seq(need(1),spcs,any( // паттерны
 			seq(need_all,
-				reg_symbol,
+				bnf_symbol,
 				opt(quantifier,null)
 			).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
-			seq(need(1,2,4),
+			seq(need(1,3,6),
 				txt('('),
-				opt(seq(need(0),rep(modifier.then(pos_adder)),txt('*')),[]),
-				reg_alternatives,
+				opt(seq(need(0),rep(modifier.then(pos_adder)),spcs,txt('*')),[]),
+				spcs,
+				bnf_alternatives,
+				spcs,
 				txt(')'),
 				opt(quantifier,null)
 			).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
@@ -697,12 +781,34 @@ var reg_sequence = seq(need_all,
 				cycle_modifiers.length>0 ? err_seq_c_modifiers(x) :
 				{type:'pattern',mode,fun,direct,pos:x}),
 			comment.then(pos_adder)
-		))
+		)))
 	)
 ).then(sequence_compiler,err_reg_sequence);
-exports.reg_sequence = reg_sequence;
-var err_fail_not = (x,name)=> new FatalError(x,'удалось прочитать то, что не должно быть прочитано: '+name)
-exports.err_fail_not = err_fail_not;
+//exports.bnf_sequence = bnf_sequence;
+// reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
+reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
+.then(alternatives_compiler);
+// bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
+bnf_alternatives.pattern = seq(need_all,bnf_sequence,rep(seq(need(2),spcs,txt('|'),bnf_sequence)))
+.then(alternatives_compiler);
+test.add_test('/','seqaltcom',()=>{
+	// todo тестирование синтаксиса (fake-)reg/bnf-sequence (fake-)reg/bnf-alternatives comment
+})
+
+//}
+
+//{ ==== комментарии ====
+var fake_modifier = seq(need_none, txt('?'), any(
+	txt('!'),
+	seq(need_none,identifier,txt('->')),   // на будущее
+	seq(need_none,opt(identifier,''),txt('=')),
+	txt('toString:')
+)).then(0,(x,e)=>err_in(x,'fake_modifier',e));
+var fake_reg_alternatives = new Forward;
+comment.pattern = seq(need_none,
+	txt('(?#'),	opt(seq(need_none,rep(fake_modifier),txt('*'))),fake_reg_alternatives,txt(')'),
+	opt(quantifier)
+).then(0,(x,e)=>err_in(x,'comment',e));
 /*
 fake_reg_sequence ::= $fake_modifier* ($link |
 (	    $reg_symbol $quantifier? (?#пробелы в reg_class и quantifier допустимы)
@@ -733,54 +839,12 @@ var fake_reg_sequence = seq(need_all,
 		))
 	)
 ).then(0,err_reg_sequence);
-//exports.fake_reg_sequence = fake_reg_sequence;
-/*
-bnf_sequence ::= $modifier* ($spcs $link |
-($spcs(	$bnf_symbol $quantifier?
-| 	`(`   (     $modifier* $spcs  `*`)? $spcs     $bnf_alternatives $spcs `)` $quantifier?
-|	$comment
-))*);
-*/
-var bnf_sequence = seq(need_all,
-	rep(modifier.then(pos_adder)), // модификаторы
-	any(
-		seq(need(1),spcs,link.then((s,x)=>({type:'link',link:s,pos:x}))),
-		rep(seq(need(1),spcs,any( // паттерны
-			seq(need_all,
-				bnf_symbol,
-				opt(quantifier,null)
-			).then(([symbol,quant],x)=>({type:'symbol',symbol,quant,pos:x})),
-			seq(need(1,3,6),
-				txt('('),
-				opt(seq(need(0),rep(modifier.then(pos_adder)),spcs,txt('*')),[]),
-				spcs,
-				bnf_alternatives,
-				spcs,
-				txt(')'),
-				opt(quantifier,null)
-			).then(([cycle_modifiers,{mode,fun,direct},quant],x)=>
-				quant ? {type:'cycle',quant,cycle_modifiers,mode,fun,direct,pos:x} :
-				cycle_modifiers.length>0 ? err_seq_c_modifiers(x) :
-				{type:'pattern',mode,fun,direct,pos:x}),
-			comment.then(pos_adder)
-		)))
-	)
-).then(sequence_compiler,err_reg_sequence);
-//exports.bnf_sequence = bnf_sequence;
-// reg_alternatives      ::= $reg_sequence      (      `|`$reg_sequence     )*;
-reg_alternatives.pattern = seq(need_all,reg_sequence,rep(seq(need(1),txt('|'),reg_sequence)))
-.then(alternatives_compiler);
 // fake_reg_alternatives ::= $fake_reg_sequence (      `|`$fake_reg_sequence)*;
 fake_reg_alternatives.pattern = seq(need_none,fake_reg_sequence,rep(seq(need_none,txt('|'),fake_reg_sequence)));
-// bnf_alternatives      ::= $bnf_sequence      ($spcs `|`$bnf_sequence     )*;
-bnf_alternatives.pattern = seq(need_all,bnf_sequence,rep(seq(need(2),spcs,txt('|'),bnf_sequence)))
-.then(alternatives_compiler);
-test.add_test('/','seqaltcom',()=>{
-	// todo тестирование синтаксиса (fake-)reg/bnf-sequence (fake-)reg/bnf-alternatives comment
-})
 
 //}
-// ================================================================================================
+
+//{ ==== ядро ====
 /* группы пока только энергичные, без возвратов, как будто (?>...)
 a(?>bc|b|x)cc 
 	abcc fail
@@ -849,7 +913,6 @@ a(?>bc|b|x)cc
 		объект или строку в значение любого типа
 	перечисления передают переданный им объект на прямую в каждую альтернативу-перечисление
 */
-//{
 var parser_tail_error = [];
 var modifier_throws = [];
 var error_modifier_throws = [];
@@ -926,85 +989,10 @@ var perr_c_name = x=>new ParseError(x,'объектный цикл должен 
 var perr_dublicate = (x,name)=>new ParseError(x,'повторно указано: '+name);
 var perr_cycle_bp = x=>new ParseError(x,'цикл не может содержать back_pattern');
 var err_any = (x,why)=>new FatalError(x,'alternatives:',why);
+var err_fail_not = (x,name)=> new FatalError(x,'удалось прочитать то, что не должно быть прочитано: '+name)
+exports.err_fail_not = err_fail_not;
 
 function sequence_compiler([modifiers,patterns],pattern_x){
-	var modifiers_schema = {
-		id:"modifiers_schema",
-		type:'array',
-		items:{
-			type:'object',
-			additionalProperties:false,
-			requiredProperties:{
-				pos:{type:'integer'}
-			},
-			oneOfPropSchemas:[
-				{requiredProperties:{
-					type:{ enum:['postscript'] }, // ?`code`error< ?`code`<
-					data:{ type:'Function' },
-					error:{ type:'boolean' }
-				}},
-				{requiredProperties:{
-					type:{ enum:['returnname'] }, // ?name= ?=
-					data:{ oneOf:[{format:'identifier' },{enum:['']}]}
-				}},
-				{requiredProperties:{
-					type:{ enum:['back_pattern'] }, // ?name->
-					data:{ format:'identifier' }
-				}},
-				{requiredProperties:{
-					type:{ enum:['not'] } // ?!
-				}},
-				{requiredProperties:{
-					type:{ enum:['toString'] } // ?toString:
-				}}
-			]
-		}
-	};
-	var patterns_schema = {
-		id:'patterns_schema',
-		definitions:{ quantificator:{
-			id:'quantificator',
-			type:['null','object'],
-			requiredProperties:{
-				min:{ type:'integer' },
-				max:{ type:'integer' }
-			},
-			additionalProperties:false,
-		}},
-		type:'array',
-		items:{
-			type:'object',
-			additionalProperties:false,
-			requiredProperties:{
-				pos:{ type:'integer' }
-			},
-			oneOfPropSchemas:[
-				{requiredProperties:{
-					type:{ enum:['symbol'] },
-					symbol:{ type:['string','RegExp'] },
-					quant:{ $ref:'#quantificator'}
-				}},
-				{allOfPropSchemas:[
-					{requiredProperties:{
-						type:{ enum:['pattern'] }
-					}},
-					{$ref:'#fun_schema'}
-				]},
-				{allOfPropSchemas:[
-					{requiredProperties:{
-						type:{ enum:['cycle'] },
-						quant:{ $ref:'#quantificator'},
-						cycle_modifiers:{ $ref:'modifiers_schema' }
-					}},
-					{$ref:'#fun_schema'}
-				]},
-				{requiredProperties:{
-					type:{ enum:['link'] },
-					link:{ type:'string' }
-				}}
-			]
-		}
-	};
 	var fun_schema = {
 		requiredProperties:{
 			mode:{ enum:['cat','obj'] },
@@ -2007,13 +1995,20 @@ if(0) {
 	}
 }
 //}
-// ===============================================================================================
+
+function Parser() {
+	this.global_modifier_object = {}; 
+	this.handler = new Pattern(this.read_handler.bind(this));
+	this.reg_sequaence = new Pattern(this.read_reg_sequaence.bind(this));
+
 /* expr main
 expr ::= $spcs $identifier $spcs (`:=`$reg_alternatives | `::=` $spcs $bnf_alternatives $spcs );
 main ::= $expr(`;` $comment? $expr)* `;`? ;
 */
 
-}
+} //function Parser()
+
+} //function main(module, exports, require)
 	try{
 		if(loaded_modules) { // it is not node.js
 			module = new Module();
