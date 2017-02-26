@@ -739,15 +739,20 @@ exports.need_none = need_none;
 
 function seq(needed, ...patterns) {
 	patterns = patterns.map(pattern=>pattern.exec);
-	if(typeOf(needed)=='function') needed = needed(patterns.length);
+	if(typeOf(needed)=='function') {
+		needed = needed(patterns.length);
+		return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
+	}
 	if(typeOf(needed)=='object') {
+		if(needed instanceof Array)
+			return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
 		var nd=[];
 		if(patterns.length===0){
 			var i=0;
 			for(var name in needed){
 				if(!/^none/.test(name))
 					nd[i]=name;
-				patterns.push(needed[name])
+				patterns.push(needed[name].exec)
 				i++;
 			}
 			return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns));
@@ -758,11 +763,31 @@ function seq(needed, ...patterns) {
 		}
 		return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns));
 	}
-	else
-		return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns));
 }
 exports.seq = seq;
 
+test.add_test('/','seq',(path)=>{
+	describe('seq(`a` `b` `c`).exec("abc")',function(){
+		it("need_all,... => ['a','b','c']",()=>{
+			assert.deepEqual(seq(need_all,txt('a'),txt('b'),txt('c')).exec('abc'),['a','b','c'])
+		})
+		it('need_none,... => []',()=>{
+			assert.deepEqual(seq(need_none,txt('a'),txt('b'),txt('c')).exec('abc'),[])
+		})
+		it("need(0,2),... => ['a','c']",()=>{
+			assert.deepEqual(seq(need(0,2),txt('a'),txt('b'),txt('c')).exec('abc'),['a','c'])
+		})
+		it("[0,2],... => ['a','c']",()=>{
+			assert.deepEqual(seq([0,2],txt('a'),txt('b'),txt('c')).exec('abc'),['a','c'])
+		})
+		it("{first:0,third:2},... => {first:'a',third:'c'}",()=>{
+			assert.deepEqual(seq({first:0,third:2},txt('a'),txt('b'),txt('c')).exec('abc'),{first:'a',third:'c'})
+		})
+		it("seq({first:txt('a'),none:txt('b'),third:txt('c')}) => {first:'a',third:'c'}",()=>{
+			assert.deepEqual(seq({first:txt('a'),none:txt('b'),third:txt('c')}).exec('abc'),{first:'a',third:'c'})
+		})
+	})
+})
 //}
 //{ === REP ===
 
