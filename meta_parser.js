@@ -4,7 +4,7 @@ function main(module, exports, require) {
 "use strict";
 
 var test = require('parser_test_utils');
-test.add_category('/','meta parser','');
+test.add_category('/','meta_parser','');
 
 /*
 exports.ParseError = ParseError;
@@ -130,7 +130,7 @@ function isGood(r){
 	return (typeof r === 'object' && r!==null) ? r.err!='parse' && r.err!='fatal' : r!==undefined ;
 }
 exports.isGood = isGood;
-test.add_test('/meta parser','isGood',(path)=>{
+test.add_test('/meta_parser','isGood',(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
 			assert.equal(isGood(0),true);
@@ -180,7 +180,7 @@ function notFatal(r){
 exports.notFatal = notFatal;
 function isFatal(r) { return !notFatal(r); }
 exports.isFatal = isFatal;
-test.add_test('/meta parser','notFatal',(path)=>{
+test.add_test('/meta_parser','notFatal',(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
 			assert.equal(notFatal(0),true);
@@ -349,7 +349,7 @@ function error_prepare(err) {
 		return err;
 }
 exports.error_prepare = error_prepare;
-test.add_test('/','error_prepare',(path)=>{
+test.add_test('/meta_parser','error_prepare',(path)=>{
 	describe('error_prepare, основное',function(){
 /*
 	p 7 'x'
@@ -766,13 +766,10 @@ function seq(needed, ...patterns) {
 }
 exports.seq = seq;
 
-test.add_test('/','seq',(path)=>{
+test.add_test('/meta_parser','seq',(path)=>{
 	describe('seq(`a` `b` `c`).exec("abc")',function(){
 		it("need_all,... => ['a','b','c']",()=>{
 			assert.deepEqual(seq(need_all,txt('a'),txt('b'),txt('c')).exec('abc'),['a','b','c'])
-		})
-		it('need_none,... => []',()=>{
-			assert.deepEqual(seq(need_none,txt('a'),txt('b'),txt('c')).exec('abc'),[])
 		})
 		it("need(0,2),... => ['a','c']",()=>{
 			assert.deepEqual(seq(need(0,2),txt('a'),txt('b'),txt('c')).exec('abc'),['a','c'])
@@ -780,11 +777,26 @@ test.add_test('/','seq',(path)=>{
 		it("[0,2],... => ['a','c']",()=>{
 			assert.deepEqual(seq([0,2],txt('a'),txt('b'),txt('c')).exec('abc'),['a','c'])
 		})
+		it("need(1),... => 'b'",()=>{
+			assert.deepEqual(seq(need(1),txt('a'),txt('b'),txt('c')).exec('abc'),'b')
+		})
+		it("[1],... => 'b'",()=>{
+			assert.deepEqual(seq([1],txt('a'),txt('b'),txt('c')).exec('abc'),'b')
+		})
+		it('need_none,... => []',()=>{
+			assert.deepEqual(seq(need_none,txt('a'),txt('b'),txt('c')).exec('abc'),[])
+		})
 		it("{first:0,third:2},... => {first:'a',third:'c'}",()=>{
 			assert.deepEqual(seq({first:0,third:2},txt('a'),txt('b'),txt('c')).exec('abc'),{first:'a',third:'c'})
 		})
 		it("seq({first:txt('a'),none:txt('b'),third:txt('c')}) => {first:'a',third:'c'}",()=>{
 			assert.deepEqual(seq({first:txt('a'),none:txt('b'),third:txt('c')}).exec('abc'),{first:'a',third:'c'})
+		})
+		it("{second:1},... => {second:'b'}",()=>{
+			assert.deepEqual(seq({second:1},txt('a'),txt('b'),txt('c')).exec('abc'),{second:'b'})
+		})
+		it("seq({none1:txt('a'),second:txt('b'),none2:txt('c')}) => {second:'b'}",()=>{
+			assert.deepEqual(seq({none1:txt('a'),second:txt('b'),none2:txt('c')}).exec('abc'),{second:'b'})
 		})
 	})
 })
