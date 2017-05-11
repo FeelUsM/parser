@@ -45,6 +45,9 @@ exports.star = star;
 
 exports.read_any = read_any;
 exports.any = any;
+
+exports.err_exc = err_exc;
+exports.exc = exc;
 */
 
 /*
@@ -85,7 +88,7 @@ opt - опциональный/необязательный
 Родительский узел узла или узлов, вернувших ParseError, не выполняет свой обработчик,
 и возвращает безымянный ParseError, содержащий в себе набор из всех этих ошибок,
 после чего выполняет обработчик ошибки этого узла,
-который может задать имя этой ошибке например при помощи messageAdder, который ведт себя так:
+который может задать имя этой ошибке например при помощи messageAdder, который ведет себя так:
 	Обработчик ошибки задает имя, если его нет, иначе 
 	для FtalError-а создает ошибку-обертку FatalError с заданным именем,
 	а для ParseError-а создает ошибку-обертку ParseError с заданным именем
@@ -243,7 +246,7 @@ exports.fatalCollect = fatalCollect;
 function parseCollect(x,arr) { return new ParseError(x,'',arr)}
 exports.parseCollect = parseCollect;
 
-function push_err(errs,r) {
+function push_err(errs,r) { // это legacy код
 /*	// это перемещено в error_prepare
 	if(r.what=='')
 		for(var i=0; i<r.why.length; i++)
@@ -452,7 +455,7 @@ var tail_error = []; // GLOBAL VARIABLE for tail error
 // var parser_debug; // GLOBAL VARIABLE for debug
 
 //строка должна соответствовать паттерну от начала и до конца
-//иначе ParseError(pos.x,'остались неразобранные символы',r)
+//иначе tail_error
 function read_all(str, pos, pattern) {
 	tail_error = [];
 	pos = {x:0}//и далее передаем всегда по ссылке
@@ -484,7 +487,6 @@ exports.read_all = read_all
 function Pattern(exec) {
 	
 	// если pos не передан, то строка должна соответствовать паттерну от начала и до конца
-	// иначе ParseError(pos.x,'остались неразобранные символы',r)
 	this.exec = function pattern_exec(str, pos/*.x*/){
 		if(pos === undefined) return read_all(str,pos,exec);
 		else {
