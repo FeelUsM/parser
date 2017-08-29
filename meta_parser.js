@@ -90,7 +90,7 @@ opt - опциональный/необязательный
 после чего выполняет обработчик ошибки этого узла,
 который может задать имя этой ошибке например при помощи messageAdder, который ведет себя так:
 	Обработчик ошибки задает имя, если его нет, иначе 
-	для FtalError-а создает ошибку-обертку FatalError с заданным именем,
+	для FatalError-а создает ошибку-обертку FatalError с заданным именем,
 	а для ParseError-а создает ошибку-обертку ParseError с заданным именем
 если требуется боле сложная обработка ошибки, например с использованием .res - в ручную
 
@@ -116,8 +116,8 @@ function ParseError(where,what,why,res){
 	this.err = 'parse';
 	this.where = where;
 	this.what = what;
-	this.why = why; // не обязательный
-	this.res = res; // не обязательный, после обработчика удаляется
+	if(why) this.why = why; // не обязательный
+	if(res) this.res = res; // не обязательный, после обработчика удаляется
 }
 exports.ParseError = ParseError;
 function FatalError(where,what,why){
@@ -133,7 +133,7 @@ function isGood(r){
 	return (typeof r === 'object' && r!==null) ? r.err!='parse' && r.err!='fatal' : r!==undefined ;
 }
 exports.isGood = isGood;
-test.add_test('/meta_parser','isGood',(path)=>{
+test.add_test('/meta_parser','isGood(){ return (typeof r === "object" && r!==null) ? r.err!="parse" && r.err!="fatal" : r!==undefined ; }',(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
 			assert.equal(isGood(0),true);
@@ -183,7 +183,7 @@ function notFatal(r){
 exports.notFatal = notFatal;
 function isFatal(r) { return !notFatal(r); }
 exports.isFatal = isFatal;
-test.add_test('/meta_parser','notFatal',(path)=>{
+test.add_test('/meta_parser',"notFatal(r){ return (typeof r === 'object' && r!==null) ? r.err!='fatal' : r!==undefined ; } ",(path)=>{
 	describe(path,function(){
 		it('sould be TRUE for: number 0',function(){
 			assert.equal(notFatal(0),true);
@@ -548,7 +548,7 @@ function Pattern(exec) {
 	}
 }
 exports.Pattern = Pattern;
-// usage: var p = new Forward; /* some using p */; p.pattern = pattern(of(what,you,wantgs));
+// usage: var p = new Forward; /* some using p */; p.pattern = pattern(of(what,you,wants));
 function Forward(){
 	var self = this;
 	this.exec = function forward_exec(){ return self.pattern.exec.apply(self.pattern,arguments); }
@@ -836,7 +836,7 @@ function read_rep(str, pos, pattern, separated, min, max) {
 		if(isFatal(r)) {
 			pos.x = x;
 			push_err(tail_error,r);
-			return res;
+			break;
 		}
 		else {
 			res.push(r);

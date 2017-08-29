@@ -4,6 +4,7 @@ function main(module, exports, require) {
 	RegExp.prototype.toJSON = function(){ return '/'+this.source+'/' }
 	Function.prototype.toJSON = function() { return 'function('+this.length+')'; }
 
+	/* вызывает assert.deepEqual() и добавляет в ошибку разделы real expected diff */
 	function assertDeepEqual(real,expected) {
 		try{
 			assert.deepEqual(expected,real);
@@ -12,10 +13,12 @@ function main(module, exports, require) {
 			err.message+='\nreal: '+JSON.stringify(real,'',4)+
 			'\nexpected: '+JSON.stringify(expected,'',4)+
 			'\ndiff: '+JSON.stringify(DeepDiff(expected,real),'',4);
+			//console.log(real,expected)
 			throw err
 		}
 	}
 	exports.assertDeepEqual = assertDeepEqual;
+	/* assertDeepEqual(error_prepare(real),expected) */
 	function assertPrepareDeepEqual(real,expected){
 		//return assertDeepEqual(real,expected)
 		try {
@@ -31,8 +34,13 @@ function main(module, exports, require) {
 		var global = window;
 	}
 
+	/* 
+		если строка, то fun = global[fun],
+		создает функцию с определенным методом .toString()
+	*/
 	function compile(fun) {
-		if(typeof fun === 'string') fun = global[fun];
+		var parser = new global.Parser();
+		if(typeof fun === 'string') fun = parser[fun];
 		function do_compile(pattern,obj) {
 			assertPrepareDeepEqual(fun.exec(pattern),obj);
 		}
@@ -40,6 +48,12 @@ function main(module, exports, require) {
 		return do_compile;
 	}
 	exports.compile = compile;
+	/* == it ==
+		pattern - то, что идет на вход коду
+		obj - результат, который должен получиться у кода с паттерном
+		code - строка-имя функции или compile(функция)
+		comment - в начале описания
+	*/
 	function it_compile(pattern,obj,code,comment='') {
 		if(typeof code ==='string') code = compile(code);
 		function tmp() {
@@ -49,6 +63,12 @@ function main(module, exports, require) {
 		it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj),tmp);
 	}
 	exports.it_compile = it_compile;
+	/* == it ==
+		pattern - то, что идет на вход коду
+		efun - вызывается без аргументов и возвращает obj - результат, который должен получиться у кода с паттерном
+		code - строка-имя функции или compile(функция)
+		comment - в начале описания
+	*/
 	function it_err_compile(pattern,efun,code,comment='') { // efun - error func
 		if(typeof code ==='string') code = compile(code);
 		function tmp() {
@@ -60,9 +80,14 @@ function main(module, exports, require) {
 		it(comment+'"'+pattern+'" ---> '+efs,tmp);
 	}
 	exports.it_err_compile = it_err_compile;
+	
+	/*
+		
+	*/
 	function parse(fun) {
 		if(!fun) fun = 'reg_sequence';
-		if(typeof fun === 'string') fun = global[fun];
+		var parser = new global.Parser();
+		if(typeof fun === 'string') fun = parser[fun];
 		function do_parse(pattern,str,res) {
 			var inres = {res:{}};
 			var funobj = fun.exec(pattern);
@@ -89,7 +114,8 @@ function main(module, exports, require) {
 	exports.it_parse = it_parse;
 	function err_parse(fun) {
 		if(!fun) fun = 'reg_sequence';
-		if(typeof fun === 'string') fun = global[fun];
+		var parser = new global.Parser();
+		if(typeof fun === 'string') fun = parser[fun];
 		function do_parse(pattern,str,res) {
 			var inres = {res:{}};
 			var funobj = fun.exec(pattern);

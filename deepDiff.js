@@ -169,13 +169,17 @@
       if (rtype !== 'undefined') {
         changes(new DiffNew(currentPath, rhs));
       }
-    } else if (rtype === 'undefined') {
+    } 
+	else if (rtype === 'undefined') {
       changes(new DiffDeleted(currentPath, lhs));
-    } else if (realTypeOf(lhs) !== realTypeOf(rhs)) {
+    } 
+	else if (realTypeOf(lhs) !== realTypeOf(rhs)) {
       changes(new DiffEdit(currentPath, lhs, rhs));
-    } else if (Object.prototype.toString.call(lhs) === '[object Date]' && Object.prototype.toString.call(rhs) === '[object Date]' && ((lhs - rhs) !== 0)) {
+    } 
+	else if (Object.prototype.toString.call(lhs) === '[object Date]' && Object.prototype.toString.call(rhs) === '[object Date]' && ((lhs - rhs) !== 0)) {
       changes(new DiffEdit(currentPath, lhs, rhs));
-    } else if (ltype === 'object' && lhs !== null && rhs !== null) {
+    } 
+	else if (ltype === 'object' && lhs !== null && rhs !== null) {
       stack = stack || [];
       if (stack.indexOf(lhs) < 0) {
         stack.push(lhs);
@@ -200,16 +204,23 @@
               deepDiff(lhs[k], rhs[k], changes, prefilter, currentPath, k, stack);
               pkeys = arrayRemove(pkeys, other);
             } else {
-              deepDiff(lhs[k], undefined, changes, prefilter, currentPath, k, stack);
+			  if(lhs[k]===undefined)
+			    changes(new DiffDeleted(currentPath.concat(k), undefined));
+			  else
+                deepDiff(lhs[k], undefined, changes, prefilter, currentPath, k, stack);
             }
           });
           pkeys.forEach(function(k) {
-            deepDiff(undefined, rhs[k], changes, prefilter, currentPath, k, stack);
+		    if(rhs[k]===undefined)
+			  changes(new DiffNew(currentPath.concat(k), undefined));
+		    else
+              deepDiff(undefined, rhs[k], changes, prefilter, currentPath, k, stack);
           });
         }
         stack.length = stack.length - 1;
       }
-    } else if (lhs !== rhs) {
+    } 
+	else if (lhs !== rhs) {
       if (!(ltype === 'number' && isNaN(lhs) && isNaN(rhs))) {
         changes(new DiffEdit(currentPath, lhs, rhs));
       }

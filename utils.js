@@ -47,6 +47,8 @@ function checkProps(obj,names){
 			console.warn('property '+names[i]+' is epsent')
 }
 
+// еще такая же в modules_manager.js
+// у меня вроде нигде не используется
 // nodejs compatible on server side and in the browser.
 function inherits(ctor, superCtor) {
 	ctor.super_ = superCtor;

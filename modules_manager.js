@@ -36,6 +36,8 @@ function Module() {
 
 */
 
+// еще такая же в utils.js
+// у меня вроде нигде не используется
 /**
  * Inherit the prototype methods from one constructor into another.
  *
