@@ -86,7 +86,7 @@ Parser:
 	}
 online-форма
 tail_error
-убрать handler из под this, и куски паттернов без this сделать глобальными
+куски паттернов без this сделать глобальными
 тесты:
 	обработчиков
 	ссылок
@@ -555,7 +555,7 @@ test.add_test('/otherTokens','modifier',(path)=>{
 //	|| fake_... - синтаксис такой же как у настоящего, только не происходит обработка
 //	|| в `*``/` - `` не убран по тому, что иначе это будет воспринято концом комментария в js
 //	|| возвращет объект {error:bool,code:string}
-var fake_handler = seq({
+var handler = seq({
 	error:any(txt('/*').then(()=>false),txt('/error*').then(()=>true)),
 	type: opt(any(txt('?').then(()=>'default'),txt('=>').then(()=>'expr')),'code'),
 	code: rep(exc(txt('*/'),rgx(/./).then(m=>m[0]))).then(merger),
@@ -565,6 +565,13 @@ var fake_handler = seq({
 		code = 'return arg.length==1?arg[0]:'+code;
 	else if(type=='expr')
 		code = 'return '+code;
+	try {
+		code = (new Function('arg','pos',code));
+		//.bind(this/*!!!*/.handler_global_object); - устанавливается при вызове call(this,arg,pos)
+	}
+	catch(err) {
+		return new ParseError(x,'синтаксическая ошибка в обработчике',err);
+	}
 	return {error,code}
 });
 var fake_handler_schema = {
@@ -590,20 +597,6 @@ error - означает, что обработчик вызовется для 
 в случае удачи - копировали свойства в global, неудачи - просто выкидывали этот объект
 + чтоб родительские свойства были const
 */
-Parser.prototype.read_handler = function(str,pos) {
-	// this.handler_global_object
-	return fake_handler.then(({error,code},x)=>{
-		try {
-			code = (new Function('arg','pos',code));
-			//.bind(this/*!!!*/.handler_global_object); - устанавливается при вызове call(this,arg,pos)
-		}
-		catch(err) {
-			return new ParseError(x,'синтаксическая ошибка в обработчике',err);
-		}
-	return {error,code}
-	}).exec(str,pos);
-}
-// Parser.handler = new Pattern(this.read_handler.bind(this)); - в конструкторе
 test.add_test('/otherTokens','handler',(path)=>{
 	describe('handler ::= (`/*`|`/error*`)(?!`*``/`|.)*`*``/`;\
  || возвращает {type:"handler",error:bool,code:function}',()=>{
@@ -611,8 +604,7 @@ test.add_test('/otherTokens','handler',(path)=>{
 			it(comment+'"'+pattern+'" ---> '+JSON.stringify(obj)+'   |.data(): '+
 				JSON.stringify(arg)+' --> '+JSON.stringify(res),
 				()=>{
-					var parser = new Parser;
-					var prpat = parser.handler.exec(pattern); // prepared pattern
+					var prpat = handler.exec(pattern); // prepared pattern
 					assertPrepareDeepEqual(prpat,obj);
 					assertPrepareDeepEqual(prpat.code(arg),res);
 				}
@@ -627,11 +619,10 @@ test.add_test('/otherTokens','handler',(path)=>{
 		it_compile_fun('/*{return "hello world"}*/',
 			{error:false,code:function(arg,pos){ return "hello world";}},
 			'',"hello world",'если в `` есть {}, то оно остается неизменным')
-		var parser = new Parser;
 		it_err_compile('/*=>{return return}*/',()=>new ParseError(0,
 				"синтаксическая ошибка в обработчике",
 				new SyntaxError("Unexpected token return")
-			),compile(parser.handler),'синтаксическая ошибка в обработчике: '
+			),compile(handler),'синтаксическая ошибка в обработчике: '
 		)
 		describe('complicated object',()=>{
 			it_compile_fun('/*=>{x1:"hello world",x2:{complicated:"{{{}{}}}}}}{}{}}{"}}*/',
@@ -680,7 +671,7 @@ exports.err_seq_c_modifiers = err_seq_c_modifiers;
 Parser.prototype.read_reg_sequence = function(str,pos) {
 	var data = seq({
 		modifiers: rep(modifier.then(pos_adder)), // модификаторы
-		begin_handlers: rep(this.handler.then(pos_adder)),
+		begin_handlers: rep(handler.then(pos_adder)),
 		patterns: rep(seq({
 				pattern: any( // паттерны
 					reg_symbol.then((symbol,x)=>(
@@ -695,7 +686,7 @@ Parser.prototype.read_reg_sequence = function(str,pos) {
 						cycle_handlers: opt(seq(need(2),
 							txt('//'),
 							spcs,
-							rep(seq(need(0),this.handler.then(pos_adder),spcs))),[]),
+							rep(seq(need(0),handler.then(pos_adder),spcs))),[]),
 						end: txt(')').then((m,x)=>x)
 					}).then((pattern,x)=>{
 						pattern.type="pattern"
@@ -721,7 +712,7 @@ Parser.prototype.read_reg_sequence = function(str,pos) {
 				pattern.quant = quant
 			return pattern;
 		}),{min:1}),
-		handlers: rep(seq(need(0),this.handler.then(pos_adder),spcs))
+		handlers: rep(seq(need(0),handler.then(pos_adder),spcs))
 	}).then(undefined,err_reg_sequence).exec(str,pos);
 	return isGood(data) ? this.sequence_compile(data,pos.x) : data;
 }
@@ -746,7 +737,7 @@ Parser.prototype.read_reg_alternatives = function(str,pos) {
 Parser.prototype.read_bnf_sequence_ = function(str,pos) {
 	var data = seq({
 		modifiers: rep(seq(need(0),modifier.then(pos_adder),spcs)), // модификаторы
-		begin_handlers: rep(seq(need(0),this.handler.then(pos_adder),spcs)),
+		begin_handlers: rep(seq(need(0),handler.then(pos_adder),spcs)),
 		patterns: rep(seq({
 				pattern: any( // паттерны
 					reg_symbol.then((symbol,x)=>(
@@ -763,7 +754,7 @@ Parser.prototype.read_bnf_sequence_ = function(str,pos) {
 						cycle_handlers: opt(seq(need(2),
 							txt('//'),
 							spcs,
-							rep(seq(need(0),this.handler.then(pos_adder),spcs))),[]),
+							rep(seq(need(0),handler.then(pos_adder),spcs))),[]),
 						end: txt(')').then((m,x)=>x),
 						none3:spcs
 					}).then((pattern,x)=>{
@@ -791,7 +782,7 @@ Parser.prototype.read_bnf_sequence_ = function(str,pos) {
 				pattern.quant = quant
 			return pattern;
 		}),{min:1}),
-		handlers: rep(seq(need(0),this.handler.then(pos_adder),spcs))
+		handlers: rep(seq(need(0),handler.then(pos_adder),spcs))
 	}).then(undefined,err_reg_sequence).exec(str,pos);
 	return isGood(data) ? this.sequence_compile(data,pos.x) : data;
 }
@@ -1963,7 +1954,6 @@ function Parser() {
 	this.tail_error = [];
 	this.handler_global_object = {ParseError,FatalError};
 	
-	this.handler = new Pattern(this.read_handler.bind(this));
 	this.reg_sequence = new Pattern(this.read_reg_sequence.bind(this));
 	this.reg_alternatives = new Pattern(this.read_reg_alternatives.bind(this));
 	this.bnf_sequence_ = new Pattern(this.read_bnf_sequence_.bind(this));
