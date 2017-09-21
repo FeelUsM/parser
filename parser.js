@@ -70,23 +70,11 @@ a(bc|b|x)cc
 */
 
 /* todo
-links
-Parser:
-	.main = 'main'
-	.check_links()
-	.exec(str[,pos])
-	.patterns{
-		name1:{
-			fun(str,pos,res){...}
-			uses:[...]
-		}
-		name2
-		name3
-		...
-	}
-online-форма
+переместить все тесты обратно в test.html
+сделать веб-морду с 3мя полями: код, ввод, вывод
+сделать и отладить поиск ссылок и общую работу
+сделать проверку битых ссылок
 tail_error
-куски паттернов без this сделать глобальными
 тесты:
 	обработчиков
 	ссылок
@@ -1950,23 +1938,6 @@ Parser.prototype.alternatives_compile = function alternatives_compile([head,tail
 
 //}
 
-function Parser() {
-	this.tail_error = [];
-	this.handler_global_object = {ParseError,FatalError};
-	
-	this.reg_sequence = new Pattern(this.read_reg_sequence.bind(this));
-	this.reg_alternatives = new Pattern(this.read_reg_alternatives.bind(this));
-	this.bnf_sequence_ = new Pattern(this.read_bnf_sequence_.bind(this));
-	this.bnf_alternatives_ = new Pattern(this.read_bnf_alternatives_.bind(this));
-	
-/* === начало ===
-expr ::= identifier spcs (`:=`reg_alternatives | `::=` spcs bnf_alternatives_ );
-main ::= spcs (handler spcs)* expr(`;` spcs expr)* (`;` spcs)? ;
-*/
-
-} //function Parser()
-exports.Parser = Parser;
-
 //{ ==== тесты ядра ====
 /* конкатенирующие и отрицание - тесты
 	последовательности
@@ -2413,14 +2384,67 @@ test.add_test('/','obj_toString',(path)=>{
 
 //}
 
+//{ === начало ===
+function Parser(arg) {
+	this.reg_sequence      = new Pattern(this.read_reg_sequence     .bind(this));
+	this.reg_alternatives  = new Pattern(this.read_reg_alternatives .bind(this));
+	this.bnf_sequence_     = new Pattern(this.read_bnf_sequence_    .bind(this));
+	this.bnf_alternatives_ = new Pattern(this.read_bnf_alternatives_.bind(this));
+	this.expr              = new Pattern(this.read_expr             .bind(this));
+	this.create            = new Pattern(this.read_main             .bind(this));
 
-var parser = new Parser;
-var pos = {x:0};
-var res = {res:{}};
-var fun = parser.reg_alternatives.exec('?n1=(?=(?n4=r)t(?n5=y)/*=>arg.n4+arg.n5*/)u(?n6=iop)').fun;
-console.log(fun('rtyuiop',pos,res));
-console.log(pos)
-console.log(res)
+	this.tail_error = [];
+	this.handler_global_object = {ParseError,FatalError};
+	
+	this.patterns = {};
+	this.main = 'main';
+	
+	if(arg!==undefined) this.create(arg);
+	return this;
+}
+exports.Parser = Parser;
+
+// expr ::= identifier spcs (`:=`reg_alternatives | `::=` spcs bnf_alternatives_ );
+// добавляет паттерн, проверяет, чтобы не было повторяющихся имен
+Parser.prototype.read_expr = function read_expr(str,pos) {
+	var data = seq({
+		name:identifier.then((r,x)=>({name:r,pos:x})),
+		none:spcs,
+		pattern:any(
+			seq(need(1),txt( ':='),this.reg_alternatives),
+			seq(need(1),txt('::='),this.bnf_alternatives)
+		)
+	}).exec(str.pos);
+	if(!isGood(data)) return data;
+	if(data.name.name in this.patterns)
+		return new ParseError(data.name.pos,"Такой паттерн уже объявлен: "+data.name.name);
+	this.patterns[data.name.name] = {pos:data.name.pos,pattern:data.pattern};
+	return true;
+}
+
+// main ::= spcs (handler spcs)* expr(`;` spcs expr)* (`;` spcs)? ;
+Parser.prototype.read_main = function read_main(str,pos) {
+	var data = seq({
+		none1:spcs,
+		begin_handlers:rep(seq(need(0),handler.then(pos_adder),spcs)),
+		head:expr,
+		tail:rep(seq(need(2),txt(';'),spcs,expr)),
+		none2:opt(seq(need_none,txt(';'),spcs))
+	}).exec(str,pos);
+	if(!isGood(data)) return data;
+	this.begin_handlers = data.begin_handlers;
+	data = this.check_links(this.main);
+	if(!isGood(data)) return data;
+	return true;
+}
+
+Parser.prototype.check_links = function check_links(additional){
+	if(additional===undefined) additional = [];
+	if(! (additional instanceof Array)) additional = [additional];
+	//...
+	return true;
+}
+//}
 
 } //function main(module, exports, require)
 	try{
