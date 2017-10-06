@@ -1,0 +1,98 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>parser</title>
+
+  <script src="utils.js"></script>
+  <script src="modules_manager.js"></script>
+  <script src="meta_parser.js"> </script>
+  <script src="parser.js"> </script>
+</head>
+<body>
+<span style="width:49%; float:left">input:</span>
+<span style="width:49%">output:</span>
+<br>
+<textarea id="inp" style="height:400px; width:49%; float:left"
+onkeyup="update_position('inp')" onclick="update_position('inp')">
+20
+</textarea>
+<textarea id="out" style="height:400px; width:49%">
+out
+</textarea>
+<br>
+code:
+<button id="run" onclick="runparser()">run</button>
+<span id="outcode"></span>
+<span id="position" style="text-align: right; width:500px"></span>
+<br>
+<textarea id="code" style="height:400px; width:99%" 
+onkeyup="update_position('code')" onclick="update_position('code')">
+main::=(?=[0-9]*)/*=>(+arg)*3*/;||sum
+sum::=?=(?head=product)(?tail=//(?=(?s=(`+`|`-`))(?p=product)/*=>s=='-'?-p:p*/))*/*
+var i,sum=head;
+for(i=0; i&lt;tail.length; i++)
+	sum+=tail[i];
+return sum;
+*/
+</textarea>
+<script>
+function update_position(el_name){
+	var position = document.getElementById('position'),
+		elt = document.getElementById(el_name);
+	position.textContent = elt.selectionStart;
+}
+copyProps(require('parser'),window);
+function runparser(){
+	var inp = document.getElementById('inp'),
+		out = document.getElementById('out'),
+		code = document.getElementById('code'),
+		run = document.getElementById('run');
+		outcode = document.getElementById('outcode');
+	//console.log(out.value);
+	//out.value = inp.value+code.value;
+	
+	var parser,result;
+	try{ 
+		parser = new Parser();
+		var tmp = parser.create(code.value);
+		if(!isGood(tmp)){
+			run.style.backgroundColor='red';
+			outcode.textContent="error on creating";
+			out.value = JSON.stringify(error_prepare(tmp),'',4);
+			return false;
+		}
+	}
+	catch(err){
+		run.style.backgroundColor='fuchsia';
+		outcode.textContent="internal error on creating";
+		out.value = JSON.stringify(err,'',4);
+		throw err;
+	}
+	
+	try{ 
+		result = parser.exec(inp.value);
+		if(!isGood(result)){
+			run.style.backgroundColor='yellow';
+			outcode.textContent="error on parsing";
+			out.value = JSON.stringify(error_prepare(result),'',4);
+			return false;
+		}
+	}
+	catch(err){
+		run.style.backgroundColor='orange';
+		outcode.textContent="internal error on parsing";
+		out.value = JSON.stringify(err,'',4);
+		throw err;
+	}
+	
+	run.style.backgroundColor='';
+	outcode.textContent="OK";
+	if(typeof result === 'string')
+		out.value = result;
+	else
+		out.value = JSON.stringify(result,'',4);
+}
+</script>
+</body>
+</html>

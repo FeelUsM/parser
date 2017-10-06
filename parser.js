@@ -70,7 +70,6 @@ a(bc|b|x)cc
 */
 
 /* todo
-сделать веб-морду с 3мя полями: код, ввод, вывод
 сделать и отладить поиск ссылок и общую работу
 сделать проверку битых ссылок
 tail_error
@@ -436,7 +435,7 @@ exports.modifier = modifier;
 var handler = seq({
 	error:any(txt('/*').then(()=>false),txt('/error*').then(()=>true)),
 	type: opt(any(txt('?').then(()=>'default'),txt('=>').then(()=>'expr')),'code'),
-	code: rep(exc(txt('*/'),rgx(/./).then(m=>m[0]))).then(merger),
+	code: rep(exc(txt('*/'),rgx(/(.|[\r\n])/m).then(m=>m[0]))).then(merger),
 	none: txt('*/')
 }).then(({error,type,code},x)=>{
 	if(type==='default')
@@ -444,7 +443,7 @@ var handler = seq({
 	else if(type=='expr')
 		code = 'return '+code;
 	try {
-		code = (new Function('arg','pos',code));
+		code = (new Function('arg','pos','with(arg){'+code+'}'));
 		//.bind(this/*!!!*/.handler_global_object); - устанавливается при вызове call(this,arg,pos)
 	}
 	catch(err) {
@@ -836,7 +835,7 @@ function minmaxToRegExp({min,max}) {
 
 var perr_double_names = x=>new ParseError(x,'повторно заданное имя');
 var perr_double_bpatterns = x=>new ParseError(x,'повторно заданное имя обратного паттерна');
-var perr_obj_handlers = x=>new ParseError(x,'объектная последовательность может иметь обработчики, только если указано (возможно пустое) имя');
+var perr_obj_handlers = x=>new ParseError(x,'объектная последовательность может иметь обработчики результата, только если указано (возможно пустое) имя');
 var perr_begin_error_handler = x=>new ParseError(x,'среди стартовых обработчиков не должно быть обработчиков ошибки');
 var perr_cycle_name = x=>new ParseError(x,'объектный цикл должен иметь (возможно пустое) имя');
 exports.perr_cycle_name = perr_cycle_name;
@@ -1619,7 +1618,7 @@ function Parser(arg) {
 	this.bnf_sequence_     = new Pattern(this.read_bnf_sequence_    .bind(this));
 	this.bnf_alternatives_ = new Pattern(this.read_bnf_alternatives_.bind(this));
 	this.expr              = new Pattern(this.read_expr             .bind(this));
-	this.create            = new Pattern(this.read_main             .bind(this));
+	this.create            = new Pattern(this.read_main             .bind(this)).exec;
 
 	this.tail_error = [];
 	this.handler_global_object = {ParseError,FatalError};
@@ -1627,7 +1626,10 @@ function Parser(arg) {
 	this.patterns = {};
 	this.main = 'main';
 	
-	if(arg!==undefined) this.create(arg);
+	if(arg!==undefined){
+		var tmp = this.create(arg);
+		if(!tmp) throw tmp;
+	}
 	return this;
 }
 exports.Parser = Parser;
@@ -1640,9 +1642,9 @@ Parser.prototype.read_expr = function read_expr(str,pos) {
 		none:spcs,
 		pattern:any(
 			seq(need(1),txt( ':='),this.reg_alternatives),
-			seq(need(1),txt('::='),this.bnf_alternatives)
+			seq(need(1),txt('::='),this.bnf_alternatives_)
 		)
-	}).exec(str.pos);
+	}).exec(str,pos);
 	if(!isGood(data)) return data;
 	if(data.name.name in this.patterns)
 		return new ParseError(data.name.pos,"Такой паттерн уже объявлен: "+data.name.name);
@@ -1655,8 +1657,8 @@ Parser.prototype.read_main = function read_main(str,pos) {
 	var data = seq({
 		none1:spcs,
 		begin_handlers:rep(seq(need(0),handler.then(pos_adder),spcs)),
-		head:expr,
-		tail:rep(seq(need(2),txt(';'),spcs,expr)),
+		head:this.expr,
+		tail:rep(seq(need(2),txt(';'),spcs,this.expr)),
 		none2:opt(seq(need_none,txt(';'),spcs))
 	}).exec(str,pos);
 	if(!isGood(data)) return data;
@@ -1671,6 +1673,12 @@ Parser.prototype.check_links = function check_links(additional){
 	if(! (additional instanceof Array)) additional = [additional];
 	//...
 	return true;
+}
+
+Parser.prototype.exec = function exec(str){
+	var inres = {res:{}};
+	var err = this.patterns.main.pattern.fun(str,{x:0},inres);
+	return isGood(err) ? inres.res : err;
 }
 //}
 
