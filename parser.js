@@ -70,8 +70,8 @@ a(bc|b|x)cc
 */
 
 /* todo
-сделать и отладить поиск ссылок и общую работу
-сделать проверку битых ссылок
+калькулятор
+переводчик
 tail_error
 тесты:
 	обработчиков
@@ -476,8 +476,8 @@ error - означает, что обработчик вызовется для 
 //{ ==== синтаксис ядра ====
 var pos_adder = (m,x)=>{m.pos = x; return m;};
 
-var err_reg_sequence = (x,e)=>err_in(x,'reg_sequence',e);
-exports.err_reg_sequence = err_reg_sequence;
+var err_sequence = (x,e)=>err_in(x,'sequence',e);
+exports.err_sequence = err_sequence;
 var err_seq_c_modifiers = x=>new ParseError(x,'модификаторы и обработчики цикла можно задавать только для цикла');
 exports.err_seq_c_modifiers = err_seq_c_modifiers;
 
@@ -491,7 +491,7 @@ exports.err_seq_c_modifiers = err_seq_c_modifiers;
 	(handler spcs)*;
 */
 Parser.prototype.read_reg_sequence = function(str,pos) {
-	var data = seq({
+	var tmp = seq({
 		modifiers: rep(modifier.then(pos_adder)), // модификаторы
 		begin_handlers: rep(handler.then(pos_adder)),
 		patterns: rep(seq({
@@ -535,14 +535,16 @@ Parser.prototype.read_reg_sequence = function(str,pos) {
 			return pattern;
 		}),{min:1}),
 		handlers: rep(seq(need(0),handler.then(pos_adder),spcs))
-	}).then(undefined,err_reg_sequence).exec(str,pos);
+	}).then(undefined,err_sequence);
+	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.sequence_compile(data,pos.x) : data;
 }
 // Parser.reg_sequence = new Pattern(this.read_reg_sequence.bind(this)); - в конструкторе
 
 // reg_alternatives ::= reg_sequence (`|` reg_sequence)*;
 Parser.prototype.read_reg_alternatives = function(str,pos) {
-	var data = seq(need_all,this.reg_sequence,rep(seq(need(1),txt('|'),this.reg_sequence))).exec(str,pos);
+	var tmp = seq(need_all,this.reg_sequence,rep(seq(need(1),txt('|'),this.reg_sequence)));
+	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.alternatives_compile(data,pos.x) : data;
 }
 // Parser.reg_alternatives = new Pattern(this.read_reg_alternatives.bind(this)); - в конструкторе
@@ -557,12 +559,12 @@ Parser.prototype.read_reg_alternatives = function(str,pos) {
 	(handler spcs)*;
 */
 Parser.prototype.read_bnf_sequence_ = function(str,pos) {
-	var data = seq({
+	var tmp = seq({
 		modifiers: rep(seq(need(0),modifier.then(pos_adder),spcs)), // модификаторы
 		begin_handlers: rep(seq(need(0),handler.then(pos_adder),spcs)),
 		patterns: rep(seq({
 				pattern: any( // паттерны
-					reg_symbol.then((symbol,x)=>(
+					bnf_symbol.then((symbol,x)=>(
 						(typeOf(symbol)==='object' && 'link' in symbol)
 						? {type:'link',link:symbol.link,pos:x}
 						: {type:'symbol',symbol,pos:x}
@@ -605,14 +607,16 @@ Parser.prototype.read_bnf_sequence_ = function(str,pos) {
 			return pattern;
 		}),{min:1}),
 		handlers: rep(seq(need(0),handler.then(pos_adder),spcs))
-	}).then(undefined,err_reg_sequence).exec(str,pos);
+	}).then(undefined,err_sequence);
+	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.sequence_compile(data,pos.x) : data;
 }
 // Parser.bnf_sequence_ = new Pattern(this.read_bnf_sequence_.bind(this)); - в конструкторе
 
 // bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*;
 Parser.prototype.read_bnf_alternatives_ = function(str,pos) {
-	var data = seq(need_all,this.bnf_sequence_,rep(seq(need(2),txt('|'),spcs,this.bnf_sequence_))).exec(str,pos);
+	var tmp = seq(need_all,this.bnf_sequence_,rep(seq(need(2),txt('|'),spcs,this.bnf_sequence_)));
+	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.alternatives_compile(data,pos.x) : data;
 }
 // Parser.bnf_alternatives_ = new Pattern(this.read_bnf_alternatives_.bind(this)); - в конструкторе
@@ -862,6 +866,7 @@ Parser.prototype.cycle_compile = function/*на самом деле procedure*/ 
 	delete pattern.cycle_modifiers;
 	delete pattern.cycle_handlers;
 	pattern.type = 'pattern';
+	var used_links = ret_pattern.used_links;
 	// pattern.ret_pattern - в конце
 	
 // 1) подбирает, какую функцию вернуть, а также возвращает режим (mode: cat/obj, direct:true/false)
@@ -951,7 +956,8 @@ Parser.prototype.cycle_compile = function/*на самом деле procedure*/ 
 			fun:make_not(e_cycle,name===null?'безымянная последовательность':name),
 			mode:'cat',
 			not:true,
-			direct:-1
+			direct:-1,
+			used_links
 		};
 	}
 	else {
@@ -966,7 +972,8 @@ Parser.prototype.cycle_compile = function/*на самом деле procedure*/ 
 		pattern.ret_pattern = {
 			fun:e_cycle,
 			mode:(toString ? 'cat' : mode==='obj' || name!==null ? 'obj' : 'cat'),
-			direct:(name==='' ? pattern_x : -1) // позиция используется в сообщениях об ошибках
+			direct:(name==='' ? pattern_x : -1), // позиция используется в сообщениях об ошибках
+			used_links
 		};
 		//console.log(name)
 	}
@@ -1183,8 +1190,9 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 	//	символы (в т.ч. ссылки на паттерны) имеют тип 'cat' и не имеют атрибута direct
 	var mode = 'cat'; // конкатенирующая или объектная (не тип cat/obj)
 	var has_direct = -1;// позиция используется в сообщениях об ошибках
+	var used_links = {};
 
-	//{ patterns -> compressed_patterns; выставляем mode и has_direct
+	//{ patterns -> compressed_patterns; выставляем mode и has_direct и used_links
 	/*	создаем массив паттернов, которые будет вызывать e_sequence:
 		последовательность символов объединяем в один регексп
 		для cycle создаем функцию и преобразуем в pattern (#todo)
@@ -1213,11 +1221,14 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 			//	функция является объектной, если хотябы одна из функций, которую она вызывает, 
 			//		имеет тип obj, иначе функция является конкатенирующей
 			if(m.type === 'link') {
+				used_links[m.link]=true;
 				compressed_patterns.push(m);
 			}
 			else if(m.type === 'pattern') {
 				if(m.ret_pattern.mode==='obj') mode = 'obj';
 				if(has_direct<m.ret_pattern.direct) has_direct = m.ret_pattern.direct;
+				for(var n in m.ret_pattern.used_links)
+					used_links[n]=true;
 				compressed_patterns.push(m);
 			}
 			else if(m.type === 'cycle') {
@@ -1226,6 +1237,8 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 					console.assert(m.type==='pattern');
 					if(m.ret_pattern.mode==='obj') mode = 'obj';
 					if(has_direct<m.ret_pattern.direct) has_direct = m.ret_pattern.direct;
+					for(var n in m.ret_pattern.used_links)
+						used_links[n]=true;
 					compressed_patterns.push(m);
 				}
 				else {
@@ -1292,7 +1305,8 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 			fun:make_not(e_sequence,name===null?'безымянная последовательность':name),
 			mode:'cat',
 			not:true,
-			direct:-1
+			direct:-1,
+			used_links
 		};
 	}
 	else {
@@ -1307,7 +1321,8 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 		return {
 			fun:e_sequence,
 			mode:(toString ? 'cat' : mode==='obj' || name!==null ? 'obj' : 'cat'),
-			direct:(name==='' ? pattern_x : -1) // позиция используется в сообщениях об ошибках
+			direct:(name==='' ? pattern_x : -1), // позиция используется в сообщениях об ошибках
+			used_links
 		};
 		console.log(name,tmp)
 	}
@@ -1386,7 +1401,17 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 				var err = curpat.ret_pattern.fun(str,pos,back_res); // ВЫЗВАЛИ!
 				tmp = isGood(err) ? back_res.res : err;
 			}
-			else if(compressed_patterns[i].type==='link') {	// #todo поиск функции, а потом вызов как при pattern
+			else if(curpat.type==='link') {	// #todo поиск функции, а потом вызов как при pattern
+				curpat = self.patterns[curpat.link].pattern;
+				// #todo надо как-то curpat.pos и curpat.end использовать
+				/* если FatalError - возвращаем FatalError+обработка ошибок
+					+ если задано name - обернуть в новый FatalError и завершить
+				*/
+				if(curpat.mode!=='cat') throw new Error('происходит вызов объектного паттерна из конкатенирующего');
+				var back_res = {res:{}}; 
+					// паттерн может оказаться объектным, а он считает, что back_res.res уже объект
+				var err = curpat.fun(str,pos,back_res); // ВЫЗВАЛИ!
+				tmp = isGood(err) ? back_res.res : err;
 			}
 			else throw new Error('неизвестный тип паттерна');
 			
@@ -1490,16 +1515,31 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 				/* если FatalError - возвращаем FatalError+обработка ошибок
 					+ если задано name - обернуть в новый FatalError и завершить
 				*/
+				var err;
 				if(curpat.ret_pattern.mode==='cat') {
 					var back_res = {res:{}};  // игнорируем
-					var err = curpat.ret_pattern.fun(str,pos,back_res); // ВЫЗВАЛИ!
+					err = curpat.ret_pattern.fun(str,pos,back_res); // ВЫЗВАЛИ!
 				}
 				else {
-					var err = curpat.ret_pattern.fun(str,pos,inres); // ВЫЗВАЛИ!
+					err = curpat.ret_pattern.fun(str,pos,inres); // ВЫЗВАЛИ!
 				}
 				tmp = isGood(err) ? true : err;
 			}
-			else if(compressed_patterns[i].type==='link') {	// #todo поиск функции, а потом вызов как при pattern
+			else if(curpat.type==='link') {	// #todo поиск функции, а потом вызов как при pattern
+				curpat = self.patterns[curpat.link].pattern;
+				// #todo надо как-то curpat.pos и curpat.end использовать
+				/* если FatalError - возвращаем FatalError+обработка ошибок
+					+ если задано name - обернуть в новый FatalError и завершить
+				*/
+				var err;
+				if(curpat.mode==='obj' && compressed_patterns.length==1) {
+					err = curpat.fun(str,pos,inres); // ВЫЗВАЛИ!
+				}
+				else {
+					var back_res = {res:{}};  // игнорируем
+					err = curpat.fun(str,pos,back_res); // ВЫЗВАЛИ!
+				}
+				tmp = isGood(err) ? true : err;
 			}
 			else throw new Error('неизвестный тип паттерна');
 
@@ -1555,13 +1595,16 @@ Parser.prototype.alternatives_compile = function alternatives_compile([head,tail
 	tail.unshift(head);
 	var mode = 'cat';
 	var direct = -1;
+	var used_links={};
 	for(var i = 0; i<tail.length; i++){
 		if(tail[i].mode==='obj')
 			mode = 'obj';
 		if(tail[i].direct>=0)
 			direct = tail[i].direct;
-		if(mode==='obj' && direct>=0)
-			break;
+		for(var n in tail[i].used_links)
+			used_links[n]=true;
+		//if(mode==='obj' && direct>=0)
+		//	break;
 	}
 	function e_alternatives(str,pos,res) {
 		var X = pos.x;
@@ -1605,7 +1648,8 @@ Parser.prototype.alternatives_compile = function alternatives_compile([head,tail
 	return {
 		fun:e_alternatives,
 		mode,
-		direct
+		direct,
+		used_links
 	}
 }
 
@@ -1637,30 +1681,35 @@ exports.Parser = Parser;
 // expr ::= identifier spcs (`:=`reg_alternatives | `::=` spcs bnf_alternatives_ );
 // добавляет паттерн, проверяет, чтобы не было повторяющихся имен
 Parser.prototype.read_expr = function read_expr(str,pos) {
-	var data = seq({
-		name:identifier.then((r,x)=>({name:r,pos:x})),
-		none:spcs,
-		pattern:any(
+	var tmp = seq({
+		name: identifier.then((r,x)=>({name:r,pos:x})),
+		none: spcs,
+		pattern: any(
 			seq(need(1),txt( ':='),this.reg_alternatives),
 			seq(need(1),txt('::='),this.bnf_alternatives_)
 		)
-	}).exec(str,pos);
+	});
+	var data = tmp.exec(str,pos);
 	if(!isGood(data)) return data;
 	if(data.name.name in this.patterns)
-		return new ParseError(data.name.pos,"Такой паттерн уже объявлен: "+data.name.name);
-	this.patterns[data.name.name] = {pos:data.name.pos,pattern:data.pattern};
+		return new ParseError(data.name.pos,"Повторное объявление паттерна: "+data.name.name);
+	this.patterns[data.name.name] = {
+		pos: data.name.pos,
+		pattern: data.pattern
+	};
 	return true;
 }
 
 // main ::= spcs (handler spcs)* expr(`;` spcs expr)* (`;` spcs)? ;
 Parser.prototype.read_main = function read_main(str,pos) {
-	var data = seq({
-		none1:spcs,
-		begin_handlers:rep(seq(need(0),handler.then(pos_adder),spcs)),
-		head:this.expr,
-		tail:rep(seq(need(2),txt(';'),spcs,this.expr)),
-		none2:opt(seq(need_none,txt(';'),spcs))
-	}).exec(str,pos);
+	var tmp = seq({
+		none1: spcs,
+		begin_handlers: rep(seq(need(0),handler.then(pos_adder),spcs)),
+		head: this.expr,
+		tail: rep(seq(need(2),txt(';'),spcs,this.expr)),
+		none2: opt(seq(need_none,txt(';'),spcs))
+	});
+	var data = tmp.exec(str,pos);
 	if(!isGood(data)) return data;
 	this.begin_handlers = data.begin_handlers;
 	data = this.check_links(this.main);
@@ -1671,13 +1720,35 @@ Parser.prototype.read_main = function read_main(str,pos) {
 Parser.prototype.check_links = function check_links(additional){
 	if(additional===undefined) additional = [];
 	if(! (additional instanceof Array)) additional = [additional];
-	//...
-	return true;
+	var errors=[];
+	//проверяем additional
+	for(var i =0; i<additional.length; i++)
+		if(!(additional[i] in this.patterns))
+			errors.push(new ParseError(0,"Не определен паттерн "+additional[i]));
+	//проверяем used_links
+	for(var p in this.patterns)
+		for(var n in this.patterns[p].pattern.used_links)
+			if(!(n in this.patterns))
+				errors.push(new ParseError(this.patterns[p].pos,"Не определен паттерн "+n));
+	if(errors.length==0)
+		return true;
+	else if(errors.length==1)
+		return errors[0];
+	else
+		return new ParseError(0,"не определены следующие паттерны:",errors);
 }
 
-Parser.prototype.exec = function exec(str){
+Parser.prototype.exec = function exec(str,pos){
+	if(pos===undefined) pos={x:0};
 	var inres = {res:{}};
-	var err = this.patterns.main.pattern.fun(str,{x:0},inres);
+	var pos = {x:0};
+	var err = this.patterns.main.pattern.fun(str,pos,inres);
+	if(pos.x!=str.length){
+		if(!isGood(err))
+			return new FatalError(pos.x,"complex",[err,new FatalError(pos.x,"остались непрочитанные символы")])
+		else
+			return new FatalError(pos.x,"остались непрочитанные символы");
+	}
 	return isGood(err) ? inres.res : err;
 }
 //}

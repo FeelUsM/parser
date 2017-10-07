@@ -359,7 +359,14 @@ var ret_pattern_schema = {
 	requiredProperties: {
 		mode: {/*...*/},
 		fun: {/*...*/},
-		direct: {/*...*/}
+		direct: {/*...*/},
+		used_links: {
+			type:"object",
+			patternProperties:"[a-zA-Z_][a-zA-Z0-9_]*"
+		}
+	},
+	additionalProperties:{
+		not: { type:"bool"}
 	}
 }
 
@@ -704,7 +711,7 @@ test.add_test('/','obj_toString',(path)=>{
  объекта в предоставленный родительской функцией объект (и по этому обработчики запрещены, т.к.\
  они могут возвратить и не объект)',()=>{
 				it_err_compile('a(q(?n2=w)e/*7*/)s',
-					()=>err_in(0,'reg_sequence',perr_obj_handlers(16)),comp_alt)
+					()=>err_in(0,'sequence',perr_obj_handlers(16)),comp_alt)
 			})
 		})
 		describe('циклы',()=>{

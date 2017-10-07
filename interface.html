@@ -15,8 +15,7 @@
 <br>
 <textarea id="inp" style="height:400px; width:49%; float:left"
 onkeyup="update_position('inp')" onclick="update_position('inp')">
-20
-</textarea>
+20s</textarea>
 <textarea id="out" style="height:400px; width:49%">
 out
 </textarea>
@@ -24,17 +23,18 @@ out
 code:
 <button id="run" onclick="runparser()">run</button>
 <span id="outcode"></span>
-<span id="position" style="text-align: right; width:500px"></span>
+<span id="position" style="float:right;"></span>
 <br>
 <textarea id="code" style="height:400px; width:99%" 
 onkeyup="update_position('code')" onclick="update_position('code')">
-main::=(?=[0-9]*)/*=>(+arg)*3*/;||sum
+main::=(?=[0-9]*)sum/*console.log(arg); return (+arg)*3;*/;||sum
 sum::=?=(?head=product)(?tail=//(?=(?s=(`+`|`-`))(?p=product)/*=>s=='-'?-p:p*/))*/*
 var i,sum=head;
-for(i=0; i&lt;tail.length; i++)
+for(i=0; i<tail.length; i++)
 	sum+=tail[i];
 return sum;
-*/
+*/;
+product:=.;
 </textarea>
 <script>
 function update_position(el_name){
@@ -58,7 +58,7 @@ function runparser(){
 		var tmp = parser.create(code.value);
 		if(!isGood(tmp)){
 			run.style.backgroundColor='red';
-			outcode.textContent="error on creating";
+			outcode.textContent="error in code";
 			out.value = JSON.stringify(error_prepare(tmp),'',4);
 			return false;
 		}
@@ -74,7 +74,7 @@ function runparser(){
 		result = parser.exec(inp.value);
 		if(!isGood(result)){
 			run.style.backgroundColor='yellow';
-			outcode.textContent="error on parsing";
+			outcode.textContent="error in input";
 			out.value = JSON.stringify(error_prepare(result),'',4);
 			return false;
 		}
@@ -86,7 +86,7 @@ function runparser(){
 		throw err;
 	}
 	
-	run.style.backgroundColor='';
+	run.style.backgroundColor='lime';
 	outcode.textContent="OK";
 	if(typeof result === 'string')
 		out.value = result;

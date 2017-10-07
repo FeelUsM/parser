@@ -300,7 +300,7 @@ function read_all(str, pos, pattern) {
 		else
 			return fatalCollect(pos.x,tail_error);
 	}
-	else if(isFatal(r) && tail_error.length!==0) {
+	else if((pos.x != str.length || isFatal(r)) && tail_error.length!==0) {
 		push_err(tail_error,r);
 		var where = 0;
 		for(var i=0; i<tail_error.length; i++)
