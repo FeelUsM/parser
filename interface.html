@@ -15,7 +15,7 @@
 <br>
 <textarea id="inp" style="height:400px; width:49%; float:left"
 onkeyup="update_position('inp')" onclick="update_position('inp')">
-20s</textarea>
+4*(3)</textarea>
 <textarea id="out" style="height:400px; width:49%">
 out
 </textarea>
@@ -27,14 +27,20 @@ code:
 <br>
 <textarea id="code" style="height:400px; width:99%" 
 onkeyup="update_position('code')" onclick="update_position('code')">
-main::=(?=[0-9]*)sum/*console.log(arg); return (+arg)*3;*/;||sum
-sum::=?=(?head=product)(?tail=//(?=(?s=(`+`|`-`))(?p=product)/*=>s=='-'?-p:p*/))*/*
-var i,sum=head;
-for(i=0; i<tail.length; i++)
+main::=?=sum;
+sum::=?=(?head=product)(?tail=//?=(?s=(`+`|`-`))(?p=product)/*=>s=='-'?-p:p*/)*/*
+var i,sum=+head;
+for(i=0; i&lt;tail.length; i++)
 	sum+=tail[i];
 return sum;
 */;
-product:=.;
+product::=?=(?head=expr)(?tail=//?=(?s=(`*`|`/`))(?p=expr)/*=>s=='/'?1/p:p*/)*/*
+var i,prod=+head;
+for(i=0; i&lt;tail.length; i++)
+	prod*=tail[i];
+return prod;
+*/;
+expr::=[0-9]*|`(`(?=sum)`)`;
 </textarea>
 <script>
 function update_position(el_name){

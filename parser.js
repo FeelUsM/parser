@@ -1741,7 +1741,6 @@ Parser.prototype.check_links = function check_links(additional){
 Parser.prototype.exec = function exec(str,pos){
 	if(pos===undefined) pos={x:0};
 	var inres = {res:{}};
-	var pos = {x:0};
 	var err = this.patterns.main.pattern.fun(str,pos,inres);
 	if(pos.x!=str.length){
 		if(!isGood(err))
