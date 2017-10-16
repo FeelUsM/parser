@@ -15,7 +15,7 @@
 <br>
 <textarea id="inp" style="height:400px; width:49%; float:left"
 onkeyup="update_position('inp')" onclick="update_position('inp')">
-4*(3)</textarea>
+4*(3+(7-2))</textarea>
 <textarea id="out" style="height:400px; width:49%">
 out
 </textarea>
@@ -40,7 +40,7 @@ for(i=0; i&lt;tail.length; i++)
 	prod*=tail[i];
 return prod;
 */;
-expr::=[0-9]*|`(`(?=sum)`)`;
+expr::=[0-9]+|`(`(?=sum)`)`;
 </textarea>
 <script>
 function update_position(el_name){
