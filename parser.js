@@ -224,15 +224,14 @@ var err_spc = (x)=>new FatalError(x,'ожидался пробельный си�
 exports.err_spc = err_spc;
 var spc = any_n('spc',
 	rgx(/^[\ \r\n\t\v\f]/),
-	seq(need_none,txt('(|'),rep(exc(txt('|)'),rgx(/./))),txt('|)')),
-	seq(need_none,txt('||'),rgx(/[^\r\n\v\f]*[\r\n\v\f]/))
+	seq(need_none,txt('(|'),rep(exc(txt('|)'),rgx(/^./))),txt('|)')),
+	seq(need_none,txt('||'),rgx(/^[^\r\n\v\f]*[\r\n\v\f]/))
 ).then(0,err_spc);
 //}
 
 //{ spcs:=$spc*;
 var spcs = rep_n('spcs',spc).then(r=>'');
 //test.add_test('/simpleTokens','spcs',(path)=>{
-spcs.exec('(|adg|)');
 exports.spcs = spcs;
 //}
 
@@ -274,7 +273,7 @@ exports.err_char = err_char;
 //{ reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.;
 //	|| здесь перечислены управляющие символы, остальные символы считаются обычными
 // возвращает символ
-var reg_char = rgx(/^[^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./,'reg_char').then(
+var reg_char = rgx(/^([^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\.)/,'reg_char').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_char
 );
@@ -296,7 +295,7 @@ exports.err_classChar = err_classChar;
 //{ reg_classChar ::= [^\\\/\``^-;|$.*+?()[]{}`] | `\\`.
 //	(?#к управляющим символам добавляется `^-`, пробелы разрешены);
 // возвращает символ
-var reg_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./,'reg_classChar').then(
+var reg_classChar = rgx(/^([^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\.)/,'reg_classChar').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
@@ -305,7 +304,7 @@ exports.reg_classChar = reg_classChar;
 //}
 //{ bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.
 //	(?#к управляющим символам добавляется `^-`, пробелы запрещены) ;
-var bnf_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./,'bnf_classChar').then(
+var bnf_classChar = rgx(/^([^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\.)/,'bnf_classChar').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
@@ -450,7 +449,7 @@ exports.modifier = modifier;
 var handler = seq_n('handler',{
 	error:any(txt('/*').then(()=>false),txt('/error*').then(()=>true)),
 	type: opt(any(txt('?').then(()=>'default'),txt('=>').then(()=>'expr')),'code'),
-	code: rep(exc(txt('*/'),rgx(/(.|[\r\n])/m).then(m=>m[0]))).then(merger),
+	code: rep(exc(txt('*/'),rgx(/^(.|[\r\n])/).then(m=>m[0]))).then(merger),
 	none: txt('*/')
 }).then(({error,type,code},x)=>{
 	if(type==='default')
@@ -1377,6 +1376,7 @@ Parser.prototype.sequence_compile = function sequence_compile({modifiers,begin_h
 			if(curpat.type==='compressed') {
 				var m;
 				if(m = curpat.symbol.exec(str.slice(pos.x))) {
+					if(m.index!==0) throw {message:"возможно неправильное использование rgx",index:m.index,pos:pos.x};
 					pos.x += m.index + m[0].length;
 					tmp = m[0];
 				}

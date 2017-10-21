@@ -330,13 +330,13 @@ function Pattern(exec,name) {
 			var lte = tail_error; // local tail_error
 			tail_error = [];
 			var local_pos = pos.x;
-			if(pos.x>=375){
+			/*if(pos.x>=0){
 				if(name)console.log(name,pos.x);
-			}
+			}*/
 			var err =  exec(str,pos);
-			if(pos.x>=375 && isGood(err)){
-				if(name)console.log(name,'OK');
-			}
+			/*if(pos.x>=0 && isGood(err)){
+				if(name)console.log(name,'OK',pos.x);
+			}*/
 			if(lte.length!==0 && (local_pos === pos.x || isFatal(err))) {
 				if(tail_error.length!==0)
 					for (var i = 0; i < tail_error.length; i++) {
@@ -468,6 +468,7 @@ exports.err_rgx = err_rgx;
 function read_rgx(str, pos, regexp) {
 	var m;
 	if (m = regexp.exec(str.slice(pos.x))){
+		if(m.index!==0) console.log("возможно неправильное использование rgx");
 		pos.x += m.index + m[0].length;
 		return m
 	}
