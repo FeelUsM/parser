@@ -318,16 +318,25 @@ function read_all(str, pos, pattern) {
 exports.read_all = read_all
 
 // основной конструктор
-function Pattern(exec) {
-	
+function Pattern(exec,name) {
+	this.name = name;
 	// если pos не передан, то строка должна соответствовать паттерну от начала и до конца
 	this.exec = function pattern_exec(str, pos/*.x*/){
-		if(pos === undefined) return read_all(str,pos,exec);
+		if(pos === undefined){
+			//if(name)console.log(name);
+			return read_all(str,pos,exec);
+		}
 		else {
 			var lte = tail_error; // local tail_error
 			tail_error = [];
 			var local_pos = pos.x;
+			if(pos.x>=375){
+				if(name)console.log(name,pos.x);
+			}
 			var err =  exec(str,pos);
+			if(pos.x>=375 && isGood(err)){
+				if(name)console.log(name,'OK');
+			}
 			if(lte.length!==0 && (local_pos === pos.x || isFatal(err))) {
 				if(tail_error.length!==0)
 					for (var i = 0; i < tail_error.length; i++) {
@@ -354,7 +363,7 @@ function Pattern(exec) {
 					}
 					else
 						return transform(r,x);
-				});
+				},name);
 			else
 				return new Pattern(function pattern_then_err(str,pos/*.x*/) {
 					var x = pos.x;
@@ -366,7 +375,7 @@ function Pattern(exec) {
 					}
 					else
 						return r;
-				});
+				},name);
 		}
 		else if(typeof transform === 'function')
 			return new Pattern(function pattern_then_res(str, pos/*.x*/) {
@@ -375,7 +384,7 @@ function Pattern(exec) {
 				return (!isGood(r)) ?
 					(delete r.res, r) :
 					transform(r,x);
-			});
+			},name);
 	}
 	this.norm_err = function(){
 		return new Pattern()
@@ -442,8 +451,8 @@ function read_txt(str, pos, text) {
 }
 exports.read_txt = read_txt;
 
-function txt(text) {
-	return new Pattern((str,pos)=>read_txt(str,pos,text));
+function txt(text,name) {
+	return new Pattern((str,pos)=>read_txt(str,pos,text),name);
 }
 exports.txt = txt;
 
@@ -467,13 +476,13 @@ function read_rgx(str, pos, regexp) {
 exports.read_rgx = read_rgx;
 
 //если в начале regexp не стоит ^, то она будет поставлена автомамтически
-function rgx(regexp) {
+function rgx(regexp,name) {
 	console.assert(regexp instanceof RegExp, 'в rgx передан аргумент неправильного типа');
 	if(!/^\^/.test(regexp.source)){
 		//console.warn('добавляю ^ в начало рег.выр-я '+regexp.source);
 		regexp = new RegExp('^'+regexp.source);
 	}
-	return new Pattern((str,pos)=>read_rgx(str,pos,regexp));
+	return new Pattern((str,pos)=>read_rgx(str,pos,regexp),name);
 }
 exports.rgx = rgx;
 
@@ -497,7 +506,11 @@ exports.read_opt = read_opt;
 function opt(pattern,def={err:0}) {
 	return new Pattern((str,pos)=>read_opt(str,pos,pattern.exec,def));
 }
+function opt_n(name,pattern,def={err:0}) {
+	return new Pattern((str,pos)=>read_opt(str,pos,pattern.exec,def),name);
+}
 exports.opt = opt;
+exports.opt_n = opt_n;
 
 //}
 //{ === SEQ ===
@@ -601,6 +614,34 @@ function seq(needed, ...patterns) {
 	}
 }
 exports.seq = seq;
+function seq_n(name,needed, ...patterns) {
+	patterns = patterns.map(pattern=>pattern.exec);
+	if(typeOf(needed)=='function') {
+		needed = needed(patterns.length);
+		return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns),name);
+	}
+	if(typeOf(needed)=='object') {
+		if(needed instanceof Array)
+			return new Pattern((str,pos)=>read_seq(str,pos,needed,patterns),name);
+		var nd=[];
+		if(patterns.length===0){
+			var i=0;
+			for(var nname in needed){
+				if(!/^none/.test(nname))
+					nd[i]=nname;
+				patterns.push(needed[nname].exec)
+				i++;
+			}
+			return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns),name);
+		}
+		else {
+			for(var nname in needed)
+				nd[needed[nname]]=nname;
+		}
+		return new Pattern((str,pos)=>read_seqn(str,pos,nd,patterns),name);
+	}
+}
+exports.seq_n = seq_n;
 
 //}
 //{ === REP ===
@@ -665,6 +706,17 @@ function rep(pattern, options, separator, then) {
 	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max));
 }
 exports.rep = rep;
+function rep_n(name,pattern, options, separator, then) {
+	var min = options && options.min || 0;
+	var max = options && options.max || +Infinity;
+	console.assert(0<=min && min<=max && 1<=max);
+	var separated = !separator ? pattern :
+		then ? seq(need_all, separator, pattern).then(then) :
+		seq(need(1), separator, pattern);
+
+	return new Pattern((str,pos)=>read_rep(str,pos,pattern.exec,separated.exec,min,max),name);
+}
+exports.rep_n = rep_n;
 
 var star = {min:0,max:Infinity};
 exports.star = star;
@@ -695,20 +747,27 @@ function any(...patterns) {
 	return new Pattern((str,pos)=>read_any(str,pos,patterns));
 }
 exports.any = any;
+function any_n(name,...patterns) {
+	if(patterns.length===1 && typeOf(patterns[0])=='array')
+		patterns = patterns[0];
+	patterns = patterns.map(pattern=>pattern.exec);
+	return new Pattern((str,pos)=>read_any(str,pos,patterns),name);
+}
+exports.any_n = any_n;
 
 //}
 //{ === EXC ===
 var err_exc = (x)=>new FatalError(x,'неожиданная конструкция');
 exports.err_exc = err_exc;
 
-function exc(except, pattern) {
+function exc(except, pattern,name) {
 	return new Pattern(function exc_pattern(str, pos/*.x*/) {
 		var x = pos.x;
 		if(isGood(except.exec(str, pos)))
 			return err_exc(x);
 		pos.x = x;
 		return pattern.exec(str, pos);
-	});
+	},name);
 }
 exports.exc = exc;
 //}

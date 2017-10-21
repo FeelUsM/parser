@@ -30,7 +30,7 @@ exports.err_reg_sequence = err_reg_sequence;
 exports.reg_sequence = reg_sequence;
 exports.err_fail_not = err_fail_not;
 //exports.fake_reg_sequence = fake_reg_sequence;
-//exports.bnf_sequence = bnf_sequence;
+//exports.bnf_sequence_ = bnf_sequence_;
 */
 
 /* about
@@ -74,10 +74,10 @@ a(bc|b|x)cc
 	глубина
 	именование функций
 в последовательностях сделать предупреждение, если прочитано 0 символов
-сделать возможность сохранять/загружать в/из LocalStorage и на/с диска
+сделать возможность сохранять/загружать в/из LocalStorage ... и на/с диска
 	с перезаписью в .bak1 ... .bak10 и отсутствием перезаписи при отсутствии изменений
-	сделать отдельный редактор для bak-ов
-	загрузку всех примеров в LocalStorage и отдельное описание
+	... сделать отдельный редактор для bak-ов
+	... загрузку всех примеров в LocalStorage и отдельное описание
 разбор xml
 кому-нибудь рассказать
 переводчик
@@ -85,6 +85,7 @@ a(bc|b|x)cc
 	придумать формат и место размещения базы данных
 	придумать структуру и финальное преобразование из структуры в текст
 	начать делать
+? как делают текстовые редакторы с подсветкой синтаксиса?
 tail_error
 тесты:
 	обработчиков
@@ -221,7 +222,7 @@ var escaper = (s)=>{
 //{ spc :=[\ \r\n\t\v\f]|`(|`(?!`|)`|.)*`|)`|`||`[^\r\n\v\f]*[\r\n\v\f];
 var err_spc = (x)=>new FatalError(x,'ожидался пробельный символ');
 exports.err_spc = err_spc;
-var spc = any(
+var spc = any_n('spc',
 	rgx(/^[\ \r\n\t\v\f]/),
 	seq(need_none,txt('(|'),rep(exc(txt('|)'),rgx(/./))),txt('|)')),
 	seq(need_none,txt('||'),rgx(/[^\r\n\v\f]*[\r\n\v\f]/))
@@ -229,7 +230,7 @@ var spc = any(
 //}
 
 //{ spcs:=$spc*;
-var spcs = rep(spc).then(r=>'');
+var spcs = rep_n('spcs',spc).then(r=>'');
 //test.add_test('/simpleTokens','spcs',(path)=>{
 spcs.exec('(|adg|)');
 exports.spcs = spcs;
@@ -238,13 +239,13 @@ exports.spcs = spcs;
 //{ num :=[0-9]+;
 var err_num = (x)=>new FatalError(x,'ожидалось число');
 exports.err_num = err_num;
-var num = rgx(/^[0-9]+/).then(m=>+m[0],err_num);
+var num = rgx(/^[0-9]+/,'num').then(m=>+m[0],err_num);
 //}
 
 //{ identifier :=[a-zA-Z_][a-zA-Z_0-9]*;
 var err_id = (x)=>new FatalError(x,'ожидался идентификатор');
 exports.err_id = err_id;
-var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/).then(m=>m[0],err_id)
+var identifier = rgx(/^[a-zA-Z_][a-zA-Z_0-9]*/,'identifier').then(m=>m[0],err_id)
 //}
 
 //}
@@ -256,7 +257,7 @@ var err_qseq = (x)=>new FatalError(x,'ожидалась строка в обр�
 exports.err_qseq = err_qseq;
 //{ quotedSequence ::= \` ( [^\`\\] | \\\` | \\\\)* \` ;
 // возвращает строку, в которой убрано экранирование
-var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/).then(
+var quotedSequence = rgx(/^`(([^`\\]|\\\\|\\`)*)`/,'quotedSequence').then(
 	m=>m[1].replace(/\\\\|\\`/g,(escseq)=>{
 		var res = escseq==='\\\\' ? '\\' : '`';
 		//console.log('escseq = '+escseq+' to '+ res);
@@ -273,7 +274,7 @@ exports.err_char = err_char;
 //{ reg_char :=[^\\\/\``;|$.*+?()[]{}`]|\\.;
 //	|| здесь перечислены управляющие символы, остальные символы считаются обычными
 // возвращает символ
-var reg_char = rgx(/^[^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+var reg_char = rgx(/^[^\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./,'reg_char').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_char
 );
@@ -282,7 +283,7 @@ exports.reg_char = reg_char;
 //}
 //{ bnf_char :=\\.;
 //	|| любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать
-var bnf_char = rgx(/^\\(.)/).then(
+var bnf_char = rgx(/^\\(.)/,'bnf_char').then(
 	m=>m[1],
 	err_char
 );
@@ -295,7 +296,7 @@ exports.err_classChar = err_classChar;
 //{ reg_classChar ::= [^\\\/\``^-;|$.*+?()[]{}`] | `\\`.
 //	(?#к управляющим символам добавляется `^-`, пробелы разрешены);
 // возвращает символ
-var reg_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./).then(
+var reg_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}]|\\./,'reg_classChar').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
@@ -304,7 +305,7 @@ exports.reg_classChar = reg_classChar;
 //}
 //{ bnf_classChar ::= [^\\\/\``^-;|$.*+?()[]{} `]| `\\`.
 //	(?#к управляющим символам добавляется `^-`, пробелы запрещены) ;
-var bnf_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./).then(
+var bnf_classChar = rgx(/^[^\^\-\\\/`;\|\$\.\*\+\?\(\)\[\]\{\}\ ]|\\./,'bnf_classChar').then(
 	m=>m[0].replace(/\\(.)/,'$1'),
 	err_classChar
 );
@@ -316,7 +317,7 @@ var err_inClass = messageAdder('класс символов');
 exports.err_inClass = err_inClass;
 //{	reg_class ::= `.` | `[``^`?      (reg_classChar(`-`reg_classChar)?      |quotedSequence     )*`]` 
 //	/ *=>new RegExp(arg)* /;
-var reg_class = any(
+var reg_class = any_n('reg_class',
 	txt('.'),
 	seq(need_all, 
 		txt('['), opt(txt('^'),''),
@@ -338,7 +339,7 @@ exports.reg_class = reg_class;
 //}
 //{	bnf_class ::= `.` | `[``^`? spcs (bnf_classChar(`-`bnf_classChar)? spcs |quotedSequence spcs)*`]` 
 //	/ *=>new RegExp(arg)* /;
-var bnf_class = any(
+var bnf_class = any_n('bnf_class',
 	txt('.'),
 	seq(need_all, 
 		txt('['), opt(txt('^'),''), spcs, 
@@ -364,13 +365,13 @@ var err_link = (x)=>new FatalError(x,'ожидалась ссылка');
 exports.err_link = err_link;
 //{	reg_link ::= `$`  ( ?id=identifier | `{` (?id=identifier) `}` ) /*=>{link:arg.id}* /;
 // возвращает ссылку на паттерн
-var reg_link = seq(need(1),txt('$'),
+var reg_link = seq_n('reg_link',need(1),txt('$'),
 	any(identifier,
 		seq(need(1),txt('{'),identifier,txt('}')))
 ).then(id=>({link:id}),err_link);
 //}
 //{ bnf_link ::= `$`? ( ?id=identifier | `{` (?id=identifier) `}` ) /*=>{link:arg.id}* /;
-var bnf_link = seq(need(1),opt(txt('$')),
+var bnf_link = seq_n('bnf_link',need(1),opt(txt('$')),
 	any(identifier,
 		seq(need(1),txt('{'),identifier,txt('}')))
 ).then(id=>({link:id}),err_link);
@@ -381,8 +382,8 @@ var bnf_link = seq(need(1),opt(txt('$')),
 //	reg_symbol ::= reg_char|quotedSequence|reg_class|reg_link;
 //	bnf_symbol ::= bnf_char|quotedSequence|bnf_class|bnf_link;
 // возвращает строку или регексп или ссылку на паттерн
-var reg_symbol = any(reg_char,quotedSequence,reg_class,reg_link).then(0,err_char);
-var bnf_symbol = any(bnf_char,quotedSequence,bnf_class,bnf_link).then(0,err_char);
+var reg_symbol = any_n('reg_symbol',reg_char,quotedSequence,reg_class,reg_link).then(0,err_char);
+var bnf_symbol = any_n('bnf_symbol',bnf_char,quotedSequence,bnf_class,bnf_link).then(0,err_char);
 
 //}
 
@@ -393,7 +394,7 @@ var bnf_symbol = any(bnf_char,quotedSequence,bnf_class,bnf_link).then(0,err_char
 //	|| возвращет объект {min:int,max:int}
 var err_quant = (x)=>new FatalError(x,'ожидался квантификатор');
 exports.err_quant = err_quant;
-var quantifier = any(
+var quantifier = any_n('quantifier',
 	txt('*').then(()=>({min:0,max:Infinity})),
 	txt('+').then(()=>({min:1,max:Infinity})),
 	txt('?').then(()=>({min:0,max:1})),
@@ -432,7 +433,7 @@ back_pattern - создает предложение с именем, равны
 В этот же момент идет такое же добавление back_pattern-ов с такой же проверкой, 
 	и назначением значения, равного '';
 */
-var modifier = seq(need(1), txt('?'), any(
+var modifier = seq_n('modifier',need(1), txt('?'), any(
 	txt('!').then(r=>({type:'not'})),
 	seq(need(0),identifier,txt('->')).then(s=>({type:'back_pattern',data:s})),   // на будущее
 	seq(need(0),opt(identifier,''),txt('=')).then(s=>({type:'returnname',data:s})),
@@ -446,7 +447,7 @@ exports.modifier = modifier;
 //	|| fake_... - синтаксис такой же как у настоящего, только не происходит обработка
 //	|| в `*``/` - `` не убран по тому, что иначе это будет воспринято концом комментария в js
 //	|| возвращет объект {error:bool,code:string}
-var handler = seq({
+var handler = seq_n('handler',{
 	error:any(txt('/*').then(()=>false),txt('/error*').then(()=>true)),
 	type: opt(any(txt('?').then(()=>'default'),txt('=>').then(()=>'expr')),'code'),
 	code: rep(exc(txt('*/'),rgx(/(.|[\r\n])/m).then(m=>m[0]))).then(merger),
@@ -505,7 +506,7 @@ exports.err_seq_c_modifiers = err_seq_c_modifiers;
 	(handler spcs)*;
 */
 Parser.prototype.read_reg_sequence = function(str,pos) {
-	var tmp = seq({
+	var tmp = seq_n('reg_sequence',{
 		modifiers: rep(modifier.then(pos_adder)), // модификаторы
 		begin_handlers: rep(handler.then(pos_adder)),
 		patterns: rep(seq({
@@ -557,7 +558,7 @@ Parser.prototype.read_reg_sequence = function(str,pos) {
 
 // reg_alternatives ::= reg_sequence (`|` reg_sequence)*;
 Parser.prototype.read_reg_alternatives = function(str,pos) {
-	var tmp = seq(need_all,this.reg_sequence,rep(seq(need(1),txt('|'),this.reg_sequence)));
+	var tmp = seq_n('reg_alternatives',need_all,this.reg_sequence,rep(seq(need(1),txt('|'),this.reg_sequence)));
 	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.alternatives_compile(data,pos.x) : data;
 }
@@ -573,7 +574,7 @@ Parser.prototype.read_reg_alternatives = function(str,pos) {
 	(handler spcs)*;
 */
 Parser.prototype.read_bnf_sequence_ = function(str,pos) {
-	var tmp = seq({
+	var tmp = seq_n('bnf_sequence_',{
 		modifiers: rep(seq(need(0),modifier.then(pos_adder),spcs)), // модификаторы
 		begin_handlers: rep(seq(need(0),handler.then(pos_adder),spcs)),
 		patterns: rep(seq({
@@ -629,7 +630,7 @@ Parser.prototype.read_bnf_sequence_ = function(str,pos) {
 
 // bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*;
 Parser.prototype.read_bnf_alternatives_ = function(str,pos) {
-	var tmp = seq(need_all,this.bnf_sequence_,rep(seq(need(2),txt('|'),spcs,this.bnf_sequence_)));
+	var tmp = seq_n('bnf_alternatives_',need_all,this.bnf_sequence_,rep(seq(need(2),txt('|'),spcs,this.bnf_sequence_)));
 	var data = tmp.exec(str,pos);
 	return isGood(data) ? this.alternatives_compile(data,pos.x) : data;
 }
@@ -1695,7 +1696,7 @@ exports.Parser = Parser;
 // expr ::= identifier spcs (`:=`reg_alternatives | `::=` spcs bnf_alternatives_ );
 // добавляет паттерн, проверяет, чтобы не было повторяющихся имен
 Parser.prototype.read_expr = function read_expr(str,pos) {
-	var tmp = seq({
+	var tmp = seq_n('expr',{
 		name: identifier.then((r,x)=>({name:r,pos:x})),
 		none: spcs,
 		pattern: any(
@@ -1716,7 +1717,7 @@ Parser.prototype.read_expr = function read_expr(str,pos) {
 
 // main ::= spcs (handler spcs)* expr(`;` spcs expr)* (`;` spcs)? ;
 Parser.prototype.read_main = function read_main(str,pos) {
-	var tmp = seq({
+	var tmp = seq_n('main',{
 		none1: spcs,
 		begin_handlers: rep(seq(need(0),handler.then(pos_adder),spcs)),
 		head: this.expr,

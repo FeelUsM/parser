@@ -139,6 +139,7 @@ function main(module, exports, require) {
 		it(comment+'"'+pattern+'" ---> fun('+str+') -> '+efs,tmp);
 	}
 	exports.it_err_parse = it_err_parse;
+	
 	function _describe(){} // для выключения групп тестов
 	exports._describe = _describe;
 	

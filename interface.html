@@ -30,17 +30,18 @@ onkeyup="update_position('code')" onclick="update_position('code')">
 main::=?=sum;
 sum::=?=(?head=product)(?tail=//?=(?s=(`+`|`-`))(?p=product)/*=>s=='-'?-p:p*/)*/*
 var i,sum=+head;
-for(i=0; i&lt;tail.length; i++)
+for(i=0; i<tail.length; i++)
 	sum+=tail[i];
 return sum;
 */;
-product::=?=(?head=expr)(?tail=//?=(?s=(`*`|`/`))(?p=expr)/*=>s=='/'?1/p:p*/)*/*
+product::=?=(?head=`expr`)(?tail=//?=(?s=(`*`|`/`))(?p=`expr`)/*=>s=='/'?1/p:p*/)*/*
 var i,prod=+head;
-for(i=0; i&lt;tail.length; i++)
+for(i=0; i<tail.length; i++)
 	prod*=tail[i];
 return prod;
 */;
-expr::=[0-9]+|`(`(?=sum)`)`;
+||expr::=([0-9]+)|`(`(?=sum)`)`;
+spcs:=[\ \n\r\t\v]*;
 </textarea>
 <script>
 function update_position(el_name){
