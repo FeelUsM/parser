@@ -1,2 +1,2 @@
 # parser
-parser library for javascript
+parser library for python
