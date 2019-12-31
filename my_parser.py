@@ -67,7 +67,6 @@ import sys
 #    (name_modifier spcs)? 
 #    ([`*+?`] |`,` spcs num | num (spcs `,` spcs num?)? ) spcs 
 #    (seq_handler spcs)?
-#    (alt_handler spcs)?
 #    `}` ;
 """возвращает объект {min:int, max:int, name:..., seq_handler:..., alt_handler:...}"""
 #-----
@@ -82,12 +81,24 @@ import sys
 """возвращет пару (тип, pp_функция)"""
 # bnf_symbol ::= bnf_char|quoted_sequence|bnf_class|bnf_str_link|obj_direct_link;
 """возвращет пару (тип, pp_функция)"""
-#reg_sequence ::=
+# reg_sequence ::=
 #    name_modifier?
-#    ( ( reg_symbol | `(` reg_alternatives`)` ) ## пока reg_alternatives -> reg_sequence
-#       ## quantifier?
+#    ( ( reg_symbol | `(` reg_alternatives`)` )
+#       quantifier?
 #    )+
-#    (seq_handler spcs)*;
+#    (seq_handler spcs)?;
+"""возвращет пару (тип, pp_функция)"""
+# bnf_sequence_ ::=
+#    (name_modifier spcs)?
+#    ( (complex_quantifier spcs)?
+#      ( bnf_symbol spcs | `(` bnf_alternatives`)` spcs )
+#      (cimple_quantifier spcs)?
+#    )+
+#    (seq_handler spcs)?;
+"""возвращет пару (тип, pp_функция)"""
+# reg_alternatives ::= reg_sequence (`|` reg_sequence)*  alt_handler?
+"""возвращет пару (тип, pp_функция)"""
+# bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*  (alt_handler spcs)?
 """возвращет пару (тип, pp_функция)"""
 
 	
@@ -465,7 +476,7 @@ def p_simple_quantifier(s,p):
 # complex_quantifier ::= `{`spcs 
 #    (name_modifier spcs)? 
 #    ([`*+?`] |`,` spcs num | num (spcs `,` spcs num?)? ) spcs 
-#    (seq_handler spcs)*
+#    (seq_handler spcs)?
 #    `}` ;
 def p_complex_quantifier(s,p):
 	"""возвращает объект {min:int, max:int, name:..., seq_handler:..., alt_handler:...}"""
@@ -522,15 +533,14 @@ def p_complex_quantifier(s,p):
 		p,r = p_spcs(s,p)
 		
 		handlers = []
-		while True:
-			p1 = p
-			p,r = p_seq_handler(s,p)
-			if not is_fatal(r):
-				handlers.append(r)
-				p,r = p_spcs(s,p)
-			else:
-				p = p1
-				break
+		p1 = p
+		p,r = p_seq_handler(s,p)
+		if not is_fatal(r):
+			handlers.append(r)
+			p,r = p_spcs(s,p)
+		else:
+			p = p1
+
 		if p<len(s) and s[p]=='}':
 			p+=1
 		else:
@@ -542,7 +552,7 @@ def p_complex_quantifier(s,p):
 
 # === Паттерны, связанные с классом ===
 
-def add_method(cls):
+def method(cls):
 	def decorator(func):
 		setattr(cls, func.__name__, func)
 		return func
@@ -565,7 +575,7 @@ class NoConcat:
 	def add(self,name):
 		self.names.append(name)
 		
-@add_method(Parser)
+@method(Parser)
 def parse(self,s):
 	assert self.main in self.patterns
 	rezs = self.patterns[self.main](s,0)
@@ -593,7 +603,7 @@ def make_pattern_as_str(self,iden):
 	return pp_pattern_as_str
 	
 # reg_str_link ::= `$`  ( ?id=identifier ) /*=>{link:arg.id}* /;
-@add_method(Parser)
+@method(Parser)
 def p_reg_str_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if p<len(s) and s[p]=='$':
@@ -609,7 +619,7 @@ def p_reg_str_link(self,s,p):
 		return (p,FatalError())
 		
 # reg_bnf_link ::= {?}`$`  ( ?id=identifier ) /*=>{link:arg.id}* /;
-@add_method(Parser)
+@method(Parser)
 def p_bnf_str_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if p<len(s) and s[p]=='$':
@@ -624,7 +634,7 @@ def p_bnf_str_link(self,s,p):
 
 # obj_direct_link ::= `$` ('(' $identifier ')'
 #                          | '{' $identifier {?}([=:] $identifier)'}');
-@add_method(Parser)
+@method(Parser)
 def p_obj_direct_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if not(p<len(s) and s[p]=='$'):
@@ -675,7 +685,7 @@ def p_obj_direct_link(self,s,p):
 		return (p,FatalError())
 	
 # reg_symbol ::= reg_char|quoted_sequence|reg_class|reg_str_link|obj_direct_link;
-@add_method(Parser)
+@method(Parser)
 def p_reg_symbol(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	p1 = p
@@ -711,7 +721,7 @@ def p_reg_symbol(self,s,p):
 	return p,r
 		
 # bnf_symbol ::= bnf_char|quoted_sequence|bnf_class|bnf_str_link|obj_direct_link;
-@add_method(Parser)
+@method(Parser)
 def p_bnf_symbol(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	p1 = p
@@ -746,7 +756,7 @@ def p_bnf_symbol(self,s,p):
 		return p,r
 	return p,r
 		
-@add_method(Parser)
+@method(Parser)
 def bnf_pattern_symbol(self,name,patt):
 	p,r = self.p_bnf_symbol(patt,0)
 	if is_fatal(r):
@@ -754,7 +764,7 @@ def bnf_pattern_symbol(self,name,patt):
 	tmp = r
 	p,r = p_spcs(patt,p)
 	if p!=len(patt):
-		raise BaseException(p)
+		raise BaseException('разобран не весь паттерн')
 	self.patterns[name] = tmp[1]
 
 	
@@ -783,17 +793,25 @@ def pp_common_sequence(patts,s,p):
 		return Elist(p,errs)
 	return rezs
 	
-def apply_seq_handlers(check_str,handlers,rezs):
+def apply_seq_handlers(check_str,handlers,rezs,as_obj = False):
+	if len(handlers)==0:
+		return rezs
+	assert len(handlers)==1
 	tmp_rezs = []
 	for p,r in rezs:
-		for handler in handlers:
-			r = handler(r)
-			if check_str:
-				if type(r)!=str:
-					print('обработчик строковой последовательности должен возвращать строку',file=sys.stderr)
-					break
+		error = False
+		try:
+			if as_obj:
+				r = handlers[0](**r)
+			else:
+				r = handlers[0](r)
+		except BaseException as e:
+			print(e)
+		if check_str:
+			if type(r)!=str:
+				print('обработчик строковой последовательности должен возвращать строку',file=sys.stderr)
 		# игнорируем результат с неправильным обработчиком
-		else:
+		elif not error:
 			tmp_rezs.append((p,r))
 	return tmp_rezs
 
@@ -823,6 +841,26 @@ def _obj_join(patts,rezs):
 		tmp_rezs.append((p,o))
 	return tmp_rezs
 
+def _str_join(rezs,check_NoConcat):
+	def foo(r):
+		for x in r:
+			if type(x)==NoConcat:
+				return x
+		return ''.join(r)
+	if check_NoConcat:
+		tmp = []
+		for p,r in rezs:
+			r = foo(r)
+			if type(r)==str:
+				tmp.append((p,r))
+			elif type(r)==NoConcat:
+				print('паттерн',r.names,'ошибочно используется как строковый')
+			else:
+				raise BaseException()
+		return tmp
+	else:
+		return [(p,foo(r)) for p,r in rezs]
+	
 def make_sequence(name,patts,handlers):
 	string_count = 0
 	direct_count = 0
@@ -834,8 +872,7 @@ def make_sequence(name,patts,handlers):
 		else: raise BaseException('неизвестный тип паттерна: '+str(t))
 			
 	if direct_count>1:
-		mes = 'в последовательности количество direct подпоследовательностей \
-не должно превышать одну'
+		mes = 'в последовательности количество direct подпоследовательностей не должно превышать одну'
 		print(mes)
 		return FatalError(mes)
 	
@@ -845,7 +882,7 @@ def make_sequence(name,patts,handlers):
 			rezs = pp_common_sequence([p for t,p in patts],s,p0)
 			if rezs==[]: return rezs
 			# assert что все - строки - внутри join
-			return apply_seq_handlers(True,handlers,[(p,''.join(r)) for p,r in rezs])
+			return apply_seq_handlers(True,handlers,_str_join(rezs,False))
 		return ('string',pp_str_cat)
 	
 	elif name==None              and direct_count==0 and obj_count>0:
@@ -855,7 +892,7 @@ def make_sequence(name,patts,handlers):
 			if rezs==[]: return rezs
 			return _obj_join(patts,rezs)
 		if len(handlers)>0:
-			mes = 'у неявной объектной последовательности обработчики недопустимы'
+			mes = 'у неявной объектной последовательности обработчики НЕ допустимы'
 			print(mes)
 			return FatalError(mes)
 		return ('obj',pp_implicit_obj_join)
@@ -884,13 +921,16 @@ def make_sequence(name,patts,handlers):
 			rezs = pp_common_sequence([p for t,p in patts],s,p0)
 			if rezs==[]: return rezs
 			# assert что все - строки - внутри join
-			return apply_seq_handlers(False,handlers,[(p,''.join(r)) for p,r in rezs])
+			return apply_seq_handlers(False,handlers,_str_join(rezs,True))
 		return ('direct',pp_direct_str_cat)
 	
 	elif name==''                and direct_count==0 and obj_count>0:
-		mes = 'warning-error: direct-последовательность содержит объектные подпоследовательности'
-		print(mes)
-		return FatalError(mes)
+		#obj - объединяем объектные, все остальные игнорируем, обработчик НЕдопустим
+		def pp_direct_obj_join(s,p0):
+			rezs = pp_common_sequence([p for t,p in patts],s,p0)
+			if rezs==[]: return rezs
+			return apply_seq_handlers(False,handlers,_obj_join(patts,rezs),as_obj=True)
+		return ('direct',pp_direct_obj_join)
 	
 	elif name==''                and direct_count==1 and obj_count==0:
 		#direct - берем только у того, который direct, все остальные игнорируем, 
@@ -913,7 +953,7 @@ def make_sequence(name,patts,handlers):
 			if rezs==[]: return rezs
 			# assert что все - строки - внутри join
 			return [(p,{name:r}) for p,r in \
-					apply_seq_handlers(False,handlers,[(p,''.join(r)) for p,r in rezs])]
+					apply_seq_handlers(False,handlers,_str_join(rezs,True))]
 		return ('obj',pp_obj_str_cat)
 	
 	elif name!=None and name!='' and direct_count==0 and obj_count>0:
@@ -923,7 +963,7 @@ def make_sequence(name,patts,handlers):
 			rezs = pp_common_sequence([p for t,p in patts],s,p0)
 			if rezs==[]: return rezs
 			return [(p,{name:r}) for p,r in \
-					apply_seq_handlers(False,handlers,_obj_join(patts,rezs))]
+					apply_seq_handlers(False,handlers,_obj_join(patts,rezs),as_obj=True)]
 		return ('obj',pp_obj_join)
 	
 	elif name!=None and name!='' and direct_count==1 and obj_count==0:
@@ -945,13 +985,13 @@ def make_sequence(name,patts,handlers):
 		raise BaseException('неизветный тип последовательности: '\
 							 +str((name,string_count,direct_count,obj_count)))
 	
-#reg_sequence ::=
+# reg_sequence ::=
 #    name_modifier?
-#    ( ( reg_symbol | `(` reg_alternatives`)` ) ## пока reg_alternatives -> reg_sequence
+#    ( ( reg_symbol | `(` reg_alternatives`)` )
 #       (simple_quantifier|complex_quantifier)?
 #    )+
-#    (seq_handler spcs)*;
-@add_method(Parser)
+#    (seq_handler spcs)?;
+@method(Parser)
 def p_reg_sequence(self,s,p):
 	"""возвращет пару (тип, pp_функция)"""
 	name = None
@@ -1009,25 +1049,24 @@ def p_reg_sequence(self,s,p):
 	if len(patts)==0:
 		return (start_seq_p,FatalError())
 	
-	while True:
-		p1 = p
-		p,r = p_seq_handler(s,p)
-		if is_fatal(r):
-			p = p1
-			break
+	p1 = p
+	p,r = p_seq_handler(s,p)
+	if is_fatal(r):
+		p = p1
+	else:
 		handlers.append(r)
 		p,r = p_spcs(s,p)
 	
 	return (p, make_sequence(name,patts,handlers))
 
-#bnf_sequence_ ::=
+# bnf_sequence_ ::=
 #    (name_modifier spcs)?
 #    ( (complex_quantifier spcs)?
-#      ( bnf_symbol spcs | `(` bnf_alternatives`)` spcs ) ## пока bnf_alternatives -> bnf_sequence
+#      ( bnf_symbol spcs | `(` bnf_alternatives`)` spcs )
 #      (cimple_quantifier spcs)?
 #    )+
-#    (seq_handler spcs)*;
-@add_method(Parser)
+#    (seq_handler spcs)?;
+@method(Parser)
 def p_bnf_sequence_(self,s,p):
 	"""возвращет пару (тип, pp_функция)"""
 	name = None
@@ -1096,12 +1135,11 @@ def p_bnf_sequence_(self,s,p):
 	if len(patts)==0:
 		return (start_seq_p,FatalError())
 	
-	while True:
-		p1 = p
-		p,r = p_seq_handler(s,p)
-		if is_fatal(r):
-			p = p1
-			break
+	p1 = p
+	p,r = p_seq_handler(s,p)
+	if is_fatal(r):
+		p = p1
+	else:
 		handlers.append(r)
 		p,r = p_spcs(s,p)
 	
@@ -1260,9 +1298,10 @@ def make_alternatives(seqs,handlers):
 		return ('string',pp_string_alt)
 	else: raise BaseException()
 	
-# reg_alternatives ::= reg_sequence (`|` reg_sequence)*  alt_handler*
-@add_method(Parser)
+# reg_alternatives ::= reg_sequence (`|` reg_sequence)*  alt_handler?
+@method(Parser)
 def p_reg_alternatives(self,s,p):
+	"""возвращет пару (тип, pp_функция)"""
 	p1 = p
 	p,r = self.p_reg_sequence(s,p)
 	if is_fatal(r):
@@ -1275,21 +1314,22 @@ def p_reg_alternatives(self,s,p):
 			return p,r
 		seqs.append(r)
 	handlers = []
-	while True:
-		p1 = p
-		p,r = p_alt_handler(s,p)
-		if not is_fatal(r):
-			handlers.append(r)
-		else:
-			p = p1
-			break
+
+	p1 = p
+	p,r = p_alt_handler(s,p)
+	if not is_fatal(r):
+		handlers.append(r)
+	else:
+		p = p1
+
 	if len(seqs)==1 and len(handlers)==0:
 		return (p,seqs[0])
 	return (p,make_alternatives(seqs,handlers))
 	
-# bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*  (alt_handler spcs)*
-@add_method(Parser)
+# bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*  (alt_handler spcs)?
+@method(Parser)
 def p_bnf_alternatives_(self,s,p):
+	"""возвращет пару (тип, pp_функция)"""
 	p1 = p
 	p,r = self.p_bnf_sequence_(s,p)
 	if is_fatal(r):
@@ -1303,15 +1343,14 @@ def p_bnf_alternatives_(self,s,p):
 			return p,r
 		seqs.append(r)
 	handlers = []
-	while True:
-		p1 = p
-		p,r = p_alt_handler(s,p)
-		if not is_fatal(r):
-			handlers.append(r)
-			p,r = p_spcs(s,p)
-		else:
-			p = p1
-			break
+	p1 = p
+	p,r = p_alt_handler(s,p)
+	if not is_fatal(r):
+		handlers.append(r)
+		p,r = p_spcs(s,p)
+	else:
+		p = p1
+
 	if len(seqs)==1 and len(handlers)==0:
 		return (p,seqs[0])
 	return (p,make_alternatives(seqs,handlers))
