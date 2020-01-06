@@ -1,3 +1,5 @@
+import sys
+
 class obj:
 	def __init__(self,**kvargs):
 		self.__keys = []
@@ -14,7 +16,6 @@ class obj:
 		if type(self)!=type(other): return NotImplemented
 		return self.__dict__==other.__dict__ and self.__keys==other.__keys
 	
-	
 class FatalError():
 	def __init__(self,mes=''):
 		self.mes = mes
@@ -24,20 +25,55 @@ class FatalError():
 		if type(self)!=type(other): return NotImplemented
 		return self.__dict__==other.__dict__
 def is_fatal(x):
-	if x==FatalError: raise BaseException(FatalError)
+	if x==FatalError: raise Exception(FatalError)
 	return type(x)==FatalError
 
+depth = 0
+debug = False
+tail_error = []
 def dwr(fun): #debug wrapper
+	#return fun
 	def wr(*args):
-		p0 = p
-		p,r = fun(*args)
-		print(p0,p,r)
+		p0 = args[-1]
+		if type(p0)!=int:
+			p0 = args[-2]
+		assert type(p0)==int
+		global depth
+		global tail_error
+		if debug: print(depth*'  ','{',p0,fun.__name__)
+		#if debug: print(depth*'  ',tail_error)
+		depth+=1
+		lte = tail_error
+		tail_error = []
+		try:
+			p,r = fun(*args)
+			if is_fatal(r) or p==p0:
+				tail_error+=lte
+		finally:
+			depth-=1
+		if debug:
+			print(depth*'  ','}')
+			print(depth*'  ',' ',p0,fun.__name__,p,repr(r))
 		return p,r
 	wr.__name__ = fun.__name__
 	return wr
-		
-import sys
-
+	
+def p_alt(patts,s,p):
+	errs = []
+	for p_patt in patts:
+		p1 = p
+		p,r = p_patt(s,p)
+		if is_fatal(r):
+			errs.append((p,r))
+			p = p1
+		else:
+			return p,r
+	mp = max(p for p,r in errs)
+	errs = [(p,r) for p,r in errs if p==mp]
+	if len(errs)==1:
+		return errs[0]
+	return p,FatalError(errs)
+	
 # spc :=[\ \r\n\t\v\f]|`(|`(?!`|)`|.)*`|)`|`||`[^\r\n\v\f]*[\r\n\v\f];
 """возвращает пробел"""
 #   todo комментарии не реализованы
@@ -47,32 +83,34 @@ import sys
 """возвращает число"""
 # identifier :=[a-zA-Z_][a-zA-Z_0-9]*;
 """возвращает строку"""
+
 # reg_quoted_sequence ::='\\Q' (?!'\\E')* '\\E' ;
 """возвращает строку"""
-# bnf_quoted_sequence ::=\' ( [^\'\\] | \\\' | \\\\)* \' | \" ( [^\"\\] | \\\" | \\\\)* \" ;
-"""возвращает строку"""
-#   todo сделать обычные кавычки для bnf
 # reg_char :=[^\\\/\Q;|$.*+?()[]{}\E]|\\[^QE];
 #  || здесь перечислены управляющие символы, остальные символы считаются обычными
 #  || ^-\/;|$.*+?()[]{}
 """возвращает символ"""
-# bnf_char :=\\.;
-#  || любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать
-#  а управляющие символы сначала надо брать в кавычки а потом еще и экранировать внутри кавычек
-"""возвращает символ"""
 # reg_class_char ::= [^\\\/`^-;|$.*+?()[]{}`] | `\\`[^QE];
 #  || к управляющим символам добавляется `^-`, пробелы разрешены
-"""возвращает символ"""
-# bnf_class_char ::= [^\\\/`^-;|$.*+?()[]{} '"`]| `\\`.;
-#  || к управляющим символам добавляется `^-'" `, пробелы запрещены
 """возвращает символ"""
 # reg_class ::= `.` | `[``^`?  (reg_classChar(`-`reg_classChar)?   |quotedSequence     )*`]` 
 #  / *=>new RegExp(arg)* /;
 """возвращает pp_функцию"""
+
+# bnf_char :=\\.;
+#  || любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать
+#  а управляющие символы сначала надо брать в кавычки а потом еще и экранировать внутри кавычек
+"""возвращает символ"""
+# bnf_class_char ::= [^\\\/\``^-;|$.*+?()[]{}'" `]| `\\`.;
+#  || к управляющим символам добавляется `^-'" `, пробелы запрещены
+"""возвращает строку"""
+# bnf_quoted_sequence ::=\' ( [^\'\\] | \\\' | \\\\)* \' | \" ( [^\"\\] | \\\" | \\\\)* \" ;
+"""возвращает строку"""
 # bnf_class ::= `.` | `[``^`? spcs 
 #    (bnf_classChar(`-`bnf_classChar)? spcs |quotedSequence spcs)*`]` 
 #  / *=>new RegExp(arg)* /;
 """возвращает pp_функцию"""
+
 # name_modifier ::= `?` identifier? `=`  || имя последовательности - имя результата
 """возвращет строку"""
 # seq_handler ::= `/*`(?!`*/`|.)*`*/`
@@ -153,6 +191,7 @@ def p_num(s,p):
 	return (p,int(s[start:p]))
 	
 # identifier :=[a-zA-Z_][a-zA-Z_0-9]*;
+@dwr
 def p_identifier(s,p):
 	"""возвращает строку"""
 	start = p
@@ -164,88 +203,161 @@ def p_identifier(s,p):
 		p+=1
 	return (p,str(s[start:p])) 
 	
-# reg_quoted_sequence ::='\\Q' (?!'\\E')* '\\E' ;
-def p_reg_quoted_sequence(s,p):
-	"""возвращает строку"""
-	if p+1<len(s) and s[p]=='\\' and s[p+1]=='Q':
-		p+=2
-	else: return (p,FatalError('ожидалась строка, начинающаяся со \\Q'))
-	rs = ''
-	while p<len(s):
-		
-		if s[p]=='\\':
+#escaped::=\\([`'"`\`abfnrtv]|[0-7]{1,3}|\x[a-fA_F0-9]{2}|\u[a-fA_F0-9]{4}|\U[a-fA_F0-9]{8}|\N\{identifier\})
+@dwr
+def p_escaped(s,p):
+	"""возвращает символ"""
+	if p<len(s) and s[p]=='\\':
+		p+=1
+	else:
+		return (p,FatalError('escaped char expected'))
+	if p<len(s) and s[p] in r'\'"`abfnrtv':
+		if   s[p]=='"': return (p+1,'"')
+		elif s[p]=="'": return (p+1,"'")
+		elif s[p]=='`': return (p+1,'`')
+		elif s[p]=='\\': return (p+1,'\\')
+		elif s[p]=='a': return (p+1,'\a')
+		elif s[p]=='b': return (p+1,'\b')
+		elif s[p]=='f': return (p+1,'\f')
+		elif s[p]=='n': return (p+1,'\n')
+		elif s[p]=='r': return (p+1,'\r')
+		elif s[p]=='t': return (p+1,'\t')
+		elif s[p]=='v': return (p+1,'\v')
+		else: raise Exception(s[p])
+	elif p<len(s) and s[p] in '01234567':
+		tmp = s[p]
+		p+=1
+		if p<len(s) and s[p] in '01234567':
+			tmp+=s[p]
 			p+=1
-			if not p<len(s): return (p,FatalError())
-			if s[p]=='E': 
+			if p<len(s) and s[p] in '01234567':
+				tmp+=s[p]
+				return p+1,chr(int(tmp,8))
+			else:
+				return p,chr(int(tmp,8))
+		else:
+			return p,chr(int(tmp,8))
+	elif p<len(s) and s[p]=='x':
+		p+=1
+		tmp = ''
+		for i in range(2):
+			if p<len(s) and s[p] in '0123456789abcdefABCDEF':
+				tmp+=s[p]
 				p+=1
-				break
-			elif s[p]=='\\': rs+='\\'
-			elif s[p]=='r': rs+='\r'
-			elif s[p]=='n': rs+='\n'
-			elif s[p]=='t': rs+='\t'
-			elif s[p]=='v': rs+='\v'
-			elif s[p]=='f': rs+='\f'
-			elif s[p]=='\n': pass
-			else:
-				print('at position',p,'found unexpected escape sequence \\'+s[p],file=sys.err)
-				rs+='\\'+s[p]
-			p+=1
-		else:
-			rs+=s[p]
-			p+=1
-	else: return (p,FatalError('неожиданный конец файла внутри строкового литерала'))
-	return (p,rs)
-		
-
-# bnf_quoted_sequence ::=\' ( [^\'\\] | \\\' | \\\\)* \' | \" ( [^\"\\] | \\\" | \\\\)* \" ;
-def p_bnf_quoted_sequence(s,p):
-	"""возвращает строку"""
-	if p<len(s) and s[p] in '\'"':
-		q_char = s[p]
+			else: 
+				#print(p,'expected only 2 hex digits',file=sys.stderr)
+				return (p,FatalError('expected only 2 hex digits'))
+		return (p,chr(int(tmp,16)))
+	elif p<len(s) and s[p]=='u':
 		p+=1
-	else: return (p,FatalError('ожидалась строка в кавычках'))
-	rs = ''
-	while p<len(s) and s[p]!=q_char:
-		if s[p]=='\\':
-			p+=1
-			if not p<len(s): return (p,FatalError())
-			if s[p]=='\\': rs+='\\'
-			elif s[p]==q_char: rs+=q_char
-			elif s[p]=='r': rs+='\r'
-			elif s[p]=='n': rs+='\n'
-			elif s[p]=='t': rs+='\t'
-			elif s[p]=='v': rs+='\v'
-			elif s[p]=='f': rs+='\f'
-			elif s[p]=='\n': pass
-			else:
-				print('at position',p,'found unexpected escape sequence \\'+s[p],file=sys.err)
-				rs+='\\'+s[p]
-			p+=1
-		else:
-			rs+=s[p]
-			p+=1
-	if p<len(s) and s[p]==q_char:
+		tmp = ''
+		for i in range(4):
+			if p<len(s) and s[p] in '0123456789abcdefABCDEF':
+				tmp+=s[p]
+				p+=1
+			else: 
+				#print(p,'expected only 4 hex digits',file=sys.stderr)
+				return (p,FatalError('expected only 4 hex digits'))
+		return p,chr(int(tmp,16))
+	elif p<len(s) and s[p]=='U':
 		p+=1
-		return (p,rs)
-	else: return (p,FatalError('неожиданный конец файла внутри строкового литерала'))
+		tmp = ''
+		for i in range(8):
+			if p<len(s) and s[p] in '0123456789abcdefABCDEF':
+				tmp+=s[p]
+				p+=1
+			else: 
+				#print(p,'expected only 8 hex digits',file=sys.stderr)
+				return (p,FatalError('expected only 8 hex digits'))
+		return p,chr(int(tmp,16))
+	else: return (p,FatalError('unexpected type of escaped seq'))
+	
+REG_CHAR_CONTROL_CHARACTERS = r'\/;|$.*+?()[]{}'
+REG_CHAR_CLASS_CONTROL_CHARACTERS = REG_CHAR_CONTROL_CHARACTERS+'^-'
+BNF_CHAR_CLASS_CONTROL_CHARACTERS = REG_CHAR_CLASS_CONTROL_CHARACTERS+'"`'+"'"
 
-# reg_char :=[^\\\/\Q;|$.*+?()[]{}\E]|\\[^QE];
+# reg_char :=[^\\\/\Q;|$.*+?()[]{}\E]|escaped|\\[^QE];
 #  || здесь перечислены управляющие символы, остальные символы считаются обычными
 #  || ^-\/;|$.*+?()[]{}
+@dwr
 def p_reg_char(s,p):
 	"""возвращает символ"""
+	p1 = p
+	p,r = p_escaped(s,p)
+	if is_fatal(r):
+		if p>p1+1:
+			return p,r
+		p=p1
+	else:
+		return p,r
+		
 	if p<len(s) and s[p]=='\\':
 		p+=1
 		if p<len(s) and s[p] not in 'QE':
 			return (p+1,s[p])
 		else: return (p,FatalError('ожидался reg_cahr'))
-	elif p<len(s) and s[p] not in r'\/;|$.*+?()[]{}':
+		
+	elif p<len(s) and s[p] not in REG_CHAR_CONTROL_CHARACTERS:
 		return (p+1,s[p])
 	else: return (p,FatalError('ожидался reg_cahr'))
+
+# reg_class_char ::= [^\\\/`^-;|$.*+?()[]{}`] |escaped| `\\`[^QE];
+#  || к управляющим символам добавляется `^-`, пробелы разрешены
+@dwr
+def p_reg_class_char(s,p):
+	"""возвращает символ"""
+	p1 = p
+	p,r = p_escaped(s,p)
+	if is_fatal(r):
+		if p>p1+1:
+			return p,r
+		p=p1
+	else:
+		return p,r
+		
+	if p<len(s) and s[p]=='\\':
+		p+=1
+		if p<len(s) and s[p] not in 'QE':
+			return (p+1,s[p])
+		else: return (p,FatalError('ожидался reg_class_char'))
+	elif p<len(s) and s[p] not in REG_CHAR_CLASS_CONTROL_CHARACTERS:
+		return (p+1,s[p])
+	else: return (p,FatalError('ожидался reg_class_char'))
 	
+# reg_quoted_sequence ::='\\Q' (?!'\\E')+ '\\E' ;
+@dwr
+def p_reg_quoted_sequence(s,p):
+	"""возвращает строку"""
+	if p+1<len(s) and s[p]=='\\' and s[p+1]=='Q':
+		p+=2
+	else: return (p,FatalError('ожидалась строка, начинающаяся со \\Q'))
+	p0 = p
+	rs = ''
+	while p<len(s):
+		
+		if s[p]=='\\':
+			p+=1
+			if not p<len(s): return (p,FatalError('unexpected end of file'))
+			if s[p]=='E': 
+				p+=1
+				break
+			elif s[p]=='\\': rs+=r'\\'
+			else:
+				#print('at position',p,'found unexpected escape sequence \\'+s[p],file=sys.err)
+				rs+='\\'+s[p]
+			p+=1
+		else:
+			rs+=s[p]
+			p+=1
+	else: return (p,FatalError('неожиданный конец файла внутри строкового литерала от '+str(p0)))
+	#if len(rs)==0: return p,FatalError('reg_quoted_sequence не может быть длины 0')
+	return (p,rs)
+		
+
 # bnf_char :=\\.;
 #  || любые символы считаются управляющими, обычные символы надо брать в кавычки или экранировать
 #  а управляющие символы сначала надо брать в кавычки а потом еще и экранировать внутри кавычек
+@dwr
 def p_bnf_char(s,p):
 	"""возвращает символ"""
 	if p<len(s) and s[p]=='\\':
@@ -255,50 +367,116 @@ def p_bnf_char(s,p):
 		else: return (p,FatalError('неожиданный конец файла'))
 	else: return (p,FatalError('ожидался bnf_char'))
 	
-# reg_class_char ::= [^\\\/`^-;|$.*+?()[]{}`] | `\\`[^QE];
-#  || к управляющим символам добавляется `^-`, пробелы разрешены
-def p_reg_class_char(s,p):
-	"""возвращает символ"""
-	if p<len(s) and s[p]=='\\':
-		p+=1
-		if p<len(s) and s[p] not in 'QE':
-			return (p+1,s[p])
-		else: return (p,FatalError('ожидался reg_class_char'))
-	elif p<len(s) and s[p] not in r'\/;|$.*+?()[]{}^-':
-		return (p+1,s[p])
-	else: return (p,FatalError('ожидался reg_class_char'))
-	
 # bnf_class_char ::= [^\\\/\``^-;|$.*+?()[]{}'" `]| `\\`.;
 #  || к управляющим символам добавляется `^-'" `, пробелы запрещены
+@dwr
 def p_bnf_class_char(s,p):
 	"""возвращает символ"""
+	p1 = p
+	p,r = p_escaped(s,p)
+	if is_fatal(r):
+		if p>p1+1:
+			return p,r
+		p=p1
+	else:
+		return p,r
 	if p<len(s) and s[p]=='\\':
 		p+=1
 		if p<len(s):
 			return (p+1,s[p])
 		else: return (p,FatalError('неожиданный конец файла'))
-	elif p<len(s) and s[p] not in r'\/;|$.*+?()[]{}^-" '+"'":
+	elif p<len(s) and s[p] not in BNF_CHAR_CLASS_CONTROL_CHARACTERS:
 		return (p+1,s[p])
 	else: return (p,FatalError('ожидался bnf_class_char'))
 	
+# bnf_quoted_sequence ::=\' ( [^\'\\] | \\\' | \\\\)+ \' | \" ( [^\"\\] | \\\" | \\\\)+ \" ;
+@dwr
+def p_bnf_quoted_sequence(s,p):
+	"""возвращает строку"""
+	if p<len(s) and s[p] in '\'"':
+		q_char = s[p]
+		p+=1
+		
+		p0 = p
+		rs = ''
+		while p<len(s) and s[p]!=q_char:
+			#print('  '*depth,p,1)
+			p1 = p
+			p,r = p_escaped(s,p)
+			if is_fatal(r):
+				if p>p1+1:
+					return p,r
+				p=p1
+				tail_error.append((p,r))
+			else:
+				rs+=r
+				continue
+				
+			#print('  '*depth,p,2)
+			if s[p]=='\\':
+				p+=1
+				if not p<len(s): return (p,FatalError('неожиданный конец файла внутри строки'))
+				if s[p]=='\n': pass
+				else:
+					print('at position',p,'found unexpected escape sequence \\'+s[p],file=sys.stderr)
+					rs+=s[p]
+				p+=1
+			else:
+				#print('  '*depth,p,3)
+				rs+=s[p]
+				p+=1
+		if p<len(s) and s[p]==q_char:
+			p+=1
+			#if len(rs)==0: return p,FatalError('bnf_quoted_sequence не может быть длины 0')
+			return (p,rs)
+		else: return (p,FatalError('неожиданный конец файла внутри строкового литерала от '+str(p0)))
+	elif p<len(s) and s[p] in '`':
+		q_char = s[p]
+		p+=1
+		
+		p0 = p
+		rs = ''
+		while p<len(s) and s[p]!=q_char:
+			if s[p]=='\\':
+				p+=1
+				if not p<len(s): return (p,FatalError('неожиданный конец файла внутри строки'))
+				rs+='\\'+s[p]
+				p+=1
+			else:
+				rs+=s[p]
+				p+=1
+		if p<len(s) and s[p]==q_char:
+			p+=1
+			#if len(rs)==0: return p,FatalError('bnf_quoted_sequence не может быть длины 0')
+			return (p,rs)
+		else: return (p,FatalError('неожиданный конец файла внутри строкового литерала от '+str(p0)))
+	else: 
+		return (p,FatalError('ожидалась строка в кавычках'))
+
+	
 # reg_class ::= `.` | `[``^`?  (reg_classChar(`-`reg_classChar)?   |quotedSequence     )*`]` 
 #  / *=>new RegExp(arg)* /;
+@dwr
 def p_reg_class(s,p):
 	"""возвращает pp_функцию"""
+	global tail_error
 	if p<len(s) and s[p]=='.':
 		def pp_any_char(ss,pp):
 			"""возвращает символ"""
 			if pp<len(ss): return [(pp+1),ss[pp]]
-			else: return [] # FatalError(EOF)
+			else: return Elist(p,FatalError('unexpected end of file')) 
 		return (p+1,pp_any_char)
 	elif p<len(s) and s[p]=='[':
 		p+=1
 		if p<len(s) and s[p]=='^':
 			p+=1
 			negation = True
-		else: negation = False
+		else: 
+			tail_error.append((p,FatalError('ожидался символ "^"')))
+			negation = False
 		intervals = [] # сюда будем складывать пары символов и строки
 		while True:
+			errs = []
 			p1 = p
 			p,r = p_reg_class_char(s,p)
 			if not is_fatal(r):
@@ -309,14 +487,18 @@ def p_reg_class(s,p):
 					if is_fatal(r): return (p,r) # FatalError(reg_class_char expected)
 					intervals.append((start_c,r))
 				else:
+					tail_error.append((p,FatalError('ожидался символ "-"')))
 					intervals.append(start_c)
 			else:
+				errs.append((p,r))
 				p=p1
 				p,r = p_reg_quoted_sequence(s,p)
 				if not is_fatal(r):
 					intervals.append(r)
 				else:
+					errs.append((p,r))
 					p=p1
+					tail_error+=errs
 					break
 		if p<len(s) and s[p]==']':
 			p+=1
@@ -324,14 +506,14 @@ def p_reg_class(s,p):
 				def pp_char_not_in_set(s,p):
 					"""возвращает символ"""
 					# nonlocal intervals
-					if p>=len(s): return [] # FatalError(EOF) 
+					if p>=len(s): return Elist(p,FatalError('unexpected end of file')) 
 					for x in intervals:
 						if type(x)==tuple:
 							if s[p]>=x[0] and s[p]<=x[1]:
-								return [] # FatalError(символ не должен принадлежать множеству)
+								return Elist(p,FatalError('символ не должен принадлежать множеству '+repr(intervals)))
 						else:
 							if s[p]in x:
-								return [] # FatalError(символ не должен принадлежать множеству)
+								return Elist(p,FatalError('символ не должен принадлежать множеству '+repr(intervals)))
 					return [(p+1,s[p])]
 				return (p,pp_char_not_in_set)
 			else:
@@ -346,51 +528,60 @@ def p_reg_class(s,p):
 						else:
 							if s[p]in x:
 								return [(p+1,s[p])]
-					return [] # FatalError(символ должен принадлежать множеству)
+					return Elist(p,FatalError('символ должен принадлежать множеству '+repr(intervals)))
 				return (p,pp_char_in_set)
 		else: return (p,FatalError('ожидалась `]`'))
 	else: return (p,FatalError('ожидался reg_class'))
 	
 # bnf_class ::= `.` | `[``^`? spcs 
-#    (bnf_classChar(`-`bnf_classChar)? spcs |quotedSequence spcs)*`]` 
+#    (bnf_class_char(`-`bnf_class_char)? spcs |quoted spcs)*`]` 
 #  / *=>new RegExp(arg)* /;
+@dwr
 def p_bnf_class(s,p):
 	"""возвращает p_функцию"""
+	global tail_error
 	if p<len(s) and s[p]=='.':
 		def pp_any_char(ss,pp):
 			"""возвращает символ"""
 			if pp<len(ss): return [(pp+1),ss[pp]]
-			else: return [] # FatalError(EOF)
+			else: return Elist(p,FatalError('unexpected end of file')) 
 		return (p+1,pp_any_char)
 	elif p<len(s) and s[p]=='[':
 		p+=1
 		if p<len(s) and s[p]=='^':
 			p+=1
 			negation = True
-		else: negation = False
+		else: 
+			tail_error.append((p,FatalError('ожидался символ "^"')))
+			negation = False
 		p,r = p_spcs(s,p)
 		intervals = [] # сюда будем складывать пары символов и строки
 		while True:
+			errs = []
 			p1 = p
-			p,r = p_reg_class_char(s,p)
+			p,r = p_bnf_class_char(s,p)
 			if not is_fatal(r):
 				start_c = r
 				if p<len(s) and s[p]=='-':
 					p+=1
-					p,r = p_reg_class_char(s,p)
+					p,r = p_bnf_class_char(s,p)
 					if is_fatal(r): return (p,r) # FatalError(reg_class_char expected)
 					intervals.append((start_c,r))
 				else:
+					tail_error.append((p,FatalError('ожидался символ "-"')))
 					intervals.append(start_c)
 				p,r = p_spcs(s,p)
 			else:
+				errs.append((p,r))
 				p=p1
 				p,r = p_bnf_quoted_sequence(s,p)
 				if not is_fatal(r):
 					intervals.append(r)
 					p,r = p_spcs(s,p)
 				else:
+					errs.append((p,r))
 					p=p1
+					tail_error+=errs
 					break
 		if p<len(s) and s[p]==']':
 			p+=1
@@ -398,14 +589,14 @@ def p_bnf_class(s,p):
 				def pp_char_not_in_set(s,p):
 					"""возвращает символ"""
 					# nonlocal intervals
-					if p>=len(s): return [] # FatalError(EOF) 
+					if p>=len(s): return Elist(p,FatalError('unexpected end of file'))   
 					for x in intervals:
 						if type(x)==tuple:
 							if s[p]>=x[0] and s[p]<=x[1]:
-								return [] # FatalError(символ не должен принадлежать множеству)
+								return Elist(p,FatalError('символ не должен принадлежать множеству '+repr(intervals)))
 						else:
 							if s[p]in x:
-								return [] # FatalError(символ не должен принадлежать множеству)
+								return Elist(p,FatalError('символ не должен принадлежать множеству '+repr(intervals)))
 					return [(p+1,s[p])]
 				return (p,pp_char_not_in_set)
 			else:
@@ -420,12 +611,13 @@ def p_bnf_class(s,p):
 						else:
 							if s[p]in x:
 								return [(p+1,s[p])]
-					return [] # FatalError(символ должен принадлежать множеству)
+					return Elist(p,FatalError('символ должен принадлежать множеству '+repr(intervals)))
 				return (p,pp_char_in_set)
 		else: return (p,FatalError('ожидалась `]`'))
 	else: return (p,FatalError('ожидался bnf_class'))
 	
 # name_modifier ::= `?` identifier? `=`  || имя последовательности - имя результата
+@dwr
 def p_name_modifier(s,p):
 	"""возвращет строку"""
 	if not (p<len(s) and s[p]=='?'):
@@ -435,6 +627,7 @@ def p_name_modifier(s,p):
 	p,r = p_identifier(s,p)
 	if is_fatal(r):
 		iden = ''
+		tail_error.append((p,r))
 		p = p1
 	else:
 		iden = r
@@ -445,6 +638,7 @@ def p_name_modifier(s,p):
 	return (p,iden)
 
 # seq_handler ::= `/*`(?!`*/`|.)*`*/`
+@dwr
 def p_seq_handler(s,p):
 	"""возвращает функцию-обработчик"""
 	if p+1<len(s) and s[p:p+2]=='/*':
@@ -467,18 +661,19 @@ def p_seq_handler(s,p):
 		try:
 			exec('def EXACTLY_UNUSED_NAME'+s[start_p:end_p],g)
 			fun = g['EXACTLY_UNUSED_NAME']
-		except BaseException as e:
+		except Exception as e:
 			print(start_p,FatalError('ошибка при компиляции обработчика'),e.offset,e)
 			return (start_p,FatalError('ошибка при компиляции обработчика'))
 	else:
 		try:
 			fun = eval('lambda '+s[start_p:end_p])
-		except BaseException as e:
+		except Exception as e:
 			print(start_p,FatalError('ошибка при компиляции обработчика'),e.offset,e)
 			return (start_p,FatalError('ошибка при компиляции обработчика'))
 	return (p,fun)
 	
 # alt_handler ::= `//`(?!`*/`|.)*`*/`
+@dwr
 def p_alt_handler(s,p):
 	"""возвращает функцию-обработчик"""
 	if p+1<len(s) and s[p:p+2]=='//':
@@ -501,18 +696,19 @@ def p_alt_handler(s,p):
 		try:
 			exec('def EXACTLY_UNUSED_NAME'+s[start_p:end_p],g)
 			fun = g['EXACTLY_UNUSED_NAME']
-		except BaseException as e:
+		except Exception as e:
 			print(start_p,FatalError('ошибка при компиляции обработчика'),e.offset,e)
 			return (start_p,FatalError('ошибка при компиляции обработчика'))
 	else:
 		try:
 			fun = eval('lambda '+s[start_p:end_p])
-		except BaseException as e:
+		except Exception as e:
 			print(start_p,FatalError('ошибка при компиляции обработчика'),e.offset,e)
 			return (start_p,FatalError('ошибка при компиляции обработчика'))
 	return (p,fun)
 	
 # simple_quantifier ::= [`*+?`]
+@dwr
 def p_simple_quantifier(s,p):
 	"""возвращает объект obj(min=int,max=int,name=...,seq_handlers=list)"""
 	# -1 === infinity
@@ -530,6 +726,7 @@ def p_simple_quantifier(s,p):
 #    ([`*+?`] |`,` spcs num | num (spcs `,` spcs num?)? ) spcs 
 #    (seq_handler spcs)?
 #    `}` ;
+@dwr
 def p_complex_quantifier(s,p):
 	"""возвращает объект {min:int, max:int, name:..., seq_handler:..., alt_handler:...}"""
 	# -1 === infinity
@@ -542,6 +739,7 @@ def p_complex_quantifier(s,p):
 			name = r
 			p,r = p_spcs(s,p)
 		else:
+			tail_error.append((p,r))
 			p = p1
 			name = None
 		if p<len(s) and s[p]=='*':
@@ -562,12 +760,13 @@ def p_complex_quantifier(s,p):
 			p,r = p_spcs(s,p)
 			p,r = p_num(s,p)
 			if is_fatal(r):
+				tail_error.append((p,r))
 				return (p,r) # FatalError
 			maxim = r
 		else:
 			p,r = p_num(s,p)
 			if is_fatal(r):
-				return (p,r) # FatalError
+				return (p,FatalError('ожидалось "*" или "+" или "-" или "," или число'))
 			minim = r
 			p,r = p_spcs(s,p)
 			if p<len(s) and s[p]==',':
@@ -581,6 +780,7 @@ def p_complex_quantifier(s,p):
 				else:
 					maxim = r
 			else:
+				tail_error.append((p,FatalError('ожидалась ","')))
 				maxim = minim
 		p,r = p_spcs(s,p)
 		
@@ -591,6 +791,7 @@ def p_complex_quantifier(s,p):
 			handlers.append(r)
 			p,r = p_spcs(s,p)
 		else:
+			tail_error.append((p,r))
 			p = p1
 
 		if p<len(s) and s[p]=='}':
@@ -616,12 +817,12 @@ class Elist(list):
 		self.mes = mes
 		
 class Parser:
-	def __init__(self):
+	def __init__(self,main='main',trace_log=False):
 		self.patterns = {}
 		self.cache = {}
 		self.cur_s = None
-		self.main = '__main__'
-		self.debug = False
+		self.main = main
+		self.trace_log = trace_log
 		self.depth = 0
 		
 class NoConcat:
@@ -631,10 +832,12 @@ class NoConcat:
 		self.names.append(name)
 		
 @method(Parser)
-def parse(self,s):
+def parse(self,s,patt=None):
 	assert self.main in self.patterns
-	rezs = self.patterns[self.main](s,0)
+	if patt==None: patt = self.main
+	rezs = self.patterns[patt](s,0)
 	if len(rezs)==0:
+		print('не получилось ни одного варианта',file=sys.stderr)
 		return rezs
 	maxp = max(p for p,r in rezs);
 	rezs = [(p,r) for p,r in rezs if p==maxp]
@@ -652,13 +855,14 @@ def make_pattern_as_str(self,iden):
 	def pp_pattern_as_str(s,p):
 		"""возвращает строку"""
 		if iden not in self.patterns:
-			raise BaseException('pattern "'+iden+'" not defined')
+			raise Exception('pattern "'+iden+'" not defined')
 		return [(p,(r if type(r)==str else NoConcat(iden))) 
 					for p,r in self.patterns[iden](s,p)]
 	return pp_pattern_as_str
 	
 # reg_str_link ::= `$`  ( ?id=identifier ) /*=>{link:arg.id}* /;
 @method(Parser)
+@dwr
 def p_reg_str_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if p<len(s) and s[p]=='$':
@@ -671,14 +875,17 @@ def p_reg_str_link(self,s,p):
 			iden = r
 			return (p,('string',make_pattern_as_str(self,iden)))
 	else:
-		return (p,FatalError())
+		return (p,FatalError('ожидался reg_str_link'))
 		
 # reg_bnf_link ::= {?}`$`  ( ?id=identifier ) /*=>{link:arg.id}* /;
 @method(Parser)
+@dwr
 def p_bnf_str_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if p<len(s) and s[p]=='$':
 		p+=1
+	else:
+		tail_error.append((p,FatalError('ожидался "$"')))
 	p1 = p
 	p,r = p_identifier(s,p)
 	if is_fatal(r):
@@ -690,10 +897,11 @@ def p_bnf_str_link(self,s,p):
 # obj_direct_link ::= `$` ('(' $identifier ')'
 #                          | '{' $identifier {?}([=:] $identifier)'}');
 @method(Parser)
+@dwr
 def p_obj_direct_link(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
 	if not(p<len(s) and s[p]=='$'):
-		return (p,FatalError())
+		return (p,FatalError('p_obj_direct_link expected'))
 	p+=1
 	if p<len(s) and s[p]=='(':
 		p+=1
@@ -702,12 +910,12 @@ def p_obj_direct_link(self,s,p):
 		if is_fatal(r): return p,r
 		iden = r
 		if not(p<len(s) and s[p]==')'):
-			return (p,FatalError())
+			return (p,FatalError('")" expected'))
 		p+=1
 		def pp_pattern_as_direct(s,p):
 			"""возвращает как есть"""
 			if iden not in self.patterns:
-				raise BaseException('pattern "'+iden+'" not defined')
+				raise Exception('pattern "'+iden+'" not defined')
 			return self.patterns[iden](s,p)
 		return (p,('direct',pp_pattern_as_direct))
 	elif p<len(s) and s[p]=='{':
@@ -724,26 +932,29 @@ def p_obj_direct_link(self,s,p):
 			if is_fatal(r): return (p,r)
 			id2 = r
 			assert len(id2)>0
+		else:
+			tail_error.append((p,FatalError('ожидался символ ":" или "="')))
 		if len(id2)==0: id2 = id1
 		name = id1
 		iden = id2
 		if not(p<len(s) and s[p]=='}'):
-			return (p,FatalError())
+			return (p,FatalError('"}" expected'))
 		p+=1
 		def pp_pattern_as_obj(s,p):
 			"""берет как есть, возвращает объект"""
 			if iden not in self.patterns:
-				raise BaseException('pattern "'+iden+'" not defined')
+				raise Exception('pattern "'+iden+'" not defined')
 			return [(p,{name:r}) for p,r in self.patterns[iden](s,p)]
 		return (p,('obj',pp_pattern_as_obj))
 	else:
-		return (p,FatalError())
+		return (p,FatalError('"(" or "{" expected'))
 	
 # reg_symbol ::= reg_char|reg_quoted_sequence|reg_class|reg_str_link|obj_direct_link;
 @method(Parser)
-#@dwr
+@dwr
 def p_reg_symbol(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
+	errs = []
 	p1 = p
 	p,r = p_reg_char(s,p)
 	if not is_fatal(r):
@@ -753,6 +964,7 @@ def p_reg_symbol(self,s,p):
 				return [(p+1,s[p])]
 			else: return Elist(p,FatalError('ожидался символ '+r))
 		return (p,('string',pp_const_char))
+	else: errs.append((p,r))
 	p = p1
 	p,r = p_reg_quoted_sequence(s,p)
 	#print('p_reg_symbol',p,r)
@@ -764,24 +976,35 @@ def p_reg_symbol(self,s,p):
 				return [(p+len(r),r)]
 			else: return Elist(p,FatalError('ожидалась строка `'+r+'`'))
 		return (p,('string',pp_const_str))
+	else: errs.append((p,r))
 	p = p1
 	p,r = p_reg_class(s,p)
 	if not is_fatal(r):
 		return (p,('string',r))
+	else: errs.append((p,r))
 	p = p1
 	p,r = self.p_reg_str_link(s,p)
 	if not is_fatal(r):
 		return p,r
+	else: errs.append((p,r))
 	p = p1
 	p,r = self.p_obj_direct_link(s,p)
 	if not is_fatal(r):
 		return p,r
-	return p,r
+	else: errs.append((p,r))
+		
+	mp = max(p for p,r in errs)
+	errs = [(p,r) for p,r in errs if p==mp]
+	if len(errs)==1:
+		return errs[0]
+	return p,FatalError(errs)
 		
 # bnf_symbol ::= bnf_char|bnf_quoted_sequence|bnf_class|bnf_str_link|obj_direct_link;
 @method(Parser)
+@dwr
 def p_bnf_symbol(self,s,p):
 	"""возвращет пару (тип, p_функция)"""
+	errs = []
 	p1 = p
 	p,r = p_bnf_char(s,p)
 	if not is_fatal(r):
@@ -791,6 +1014,7 @@ def p_bnf_symbol(self,s,p):
 				return [(p+1,s[p])]
 			else: return Elist(p,FatalError('ожидался символ '+r))
 		return (p,('string',pp_const_char))
+	else: errs.append((p,r))
 	p = p1
 	p,r = p_bnf_quoted_sequence(s,p)
 	if not is_fatal(r):
@@ -800,19 +1024,28 @@ def p_bnf_symbol(self,s,p):
 				return [(p+len(r),r)]
 			else: return Elist(p,FatalError('ожидалась строка `'+r+'`'))
 		return (p,('string',pp_const_str))
+	else: errs.append((p,r))
 	p = p1
 	p,r = p_bnf_class(s,p)
 	if not is_fatal(r):
 		return (p,('string',r))
+	else: errs.append((p,r))
 	p = p1
 	p,r = self.p_bnf_str_link(s,p)
 	if not is_fatal(r):
 		return p,r
+	else: errs.append((p,r))
 	p = p1
 	p,r = self.p_obj_direct_link(s,p)
 	if not is_fatal(r):
 		return p,r
-	return p,r
+	else: errs.append((p,r))
+		
+	mp = max(p for p,r in errs)
+	errs = [(p,r) for p,r in errs if p==mp]
+	if len(errs)==1:
+		return errs[0]
+	return p,FatalError(errs)
 		
 	
 # ---- Последовательности ----
@@ -853,8 +1086,8 @@ def apply_seq_handlers(check_str,handlers,rezs,as_obj = False):
 			else:
 				r = handlers[0](r)
 			#print('apply->',r)
-		except BaseException as e:
-			print(e)
+		except Exception as e:
+			print('ошибка в обработчике:',e)
 			error = True
 		if not error:
 			if check_str and type(r)!=str:
@@ -872,7 +1105,7 @@ def _select_direct(patts,rezs):
 		for i in range(len(patts)):
 			if patts[i][0]=='direct':
 				break
-		else: raise BaseException()
+		else: raise Exception()
 		tmp_rezs.append((p,r[i]))
 	return tmp_rezs
 
@@ -906,7 +1139,7 @@ def _str_join(rezs,check_NoConcat):
 			elif type(r)==NoConcat:
 				print('паттерн',r.names,'ошибочно используется как строковый')
 			else:
-				raise BaseException()
+				raise Exception()
 		return tmp
 	else:
 		return [(p,foo(r)) for p,r in rezs]
@@ -919,7 +1152,7 @@ def make_sequence(name,patts,handlers):
 		if t=='string': string_count+=1
 		elif t=='direct': direct_count+=1
 		elif t=='obj': obj_count+=1
-		else: raise BaseException('неизвестный тип паттерна: '+str(t))
+		else: raise Exception('неизвестный тип паттерна: '+str(t))
 			
 	if direct_count>1:
 		mes = 'в последовательности количество direct подпоследовательностей не должно превышать одну'
@@ -1032,7 +1265,7 @@ def make_sequence(name,patts,handlers):
 		return FatalError(mes)
 	
 	else:
-		raise BaseException('неизветный тип последовательности: '\
+		raise Exception('неизветный тип последовательности: '\
 							 +str((name,string_count,direct_count,obj_count)))
 	
 # reg_sequence ::=
@@ -1042,6 +1275,7 @@ def make_sequence(name,patts,handlers):
 #    )+
 #    (seq_handler spcs)?;
 @method(Parser)
+@dwr
 def p_reg_sequence(self,s,p,handlers=None):
 	"""возвращет пару (тип, pp_функция)"""
 	name = None
@@ -1053,16 +1287,19 @@ def p_reg_sequence(self,s,p,handlers=None):
 	if not is_fatal(r):
 		name = r
 	else:
+		tail_error.append((p,r))
 		p = p0
 		
 	start_seq_p = p
 	while True:
+		errs = []
 		p1 = p
 		patt = None
 		p,r = self.p_reg_symbol(s,p)
 		if not is_fatal(r):
 			patt = r
 		else:
+			errs.append((p,r))
 			p = p1
 			if p<len(s) and s[p]=='(':
 				p+=1
@@ -1072,36 +1309,46 @@ def p_reg_sequence(self,s,p,handlers=None):
 					return p,r
 				patt = r
 				if not(p<len(s) and s[p]==')'):
-					return (p,FatalError())
+					return (p,FatalError('ожидалась ")"'))
 				p+=1
 			else:
+				errs.append((p,r))
+				tail_error.append((p,FatalError(errs)))
 				p = p1
 				break
 				
 		p1 = p
 		quant = None
+		errs = []
 		p,r = p_simple_quantifier(s,p)
 		if not is_fatal(r):
 			quant = r
 		else:
+			errs.append((p,r))
 			p = p1
 			p,r = p_complex_quantifier(s,p)
 			if not is_fatal(r):
 				quant = r
 			else:
+				errs.append((p,r))
+				tail_error.append((p,FatalError(errs)))
 				p = p1
 				
 		if quant == None:
 			patts.append(patt)
 		else:
-			patts.append(make_cycle(patt,quant))
+			tmp = make_cycle(patt,quant)
+			if debug:
+				print('  '*depth,p,'make_cycle',tmp)
+			patts.append(tmp)
 			
 	if len(patts)==0:
-		return (start_seq_p,FatalError())
+		return (start_seq_p,FatalError('последовательность не должна быть пустой'))
 	
 	p1 = p
 	p,r = p_seq_handler(s,p)
 	if is_fatal(r):
+		tail_error.append((p,r))
 		p = p1
 	else:
 		if len(handlers)>0:
@@ -1119,6 +1366,7 @@ def p_reg_sequence(self,s,p,handlers=None):
 #    )+
 #    (seq_handler spcs)?;
 @method(Parser)
+@dwr
 def p_bnf_sequence_(self,s,p,handlers = None):
 	"""возвращет пару (тип, pp_функция)"""
 
@@ -1132,6 +1380,7 @@ def p_bnf_sequence_(self,s,p,handlers = None):
 		name = r
 		p,r = p_spcs(s,p)
 	else:
+		tail_error.append((p,r))
 		p = p0
 		
 	start_seq_p = p
@@ -1145,13 +1394,17 @@ def p_bnf_sequence_(self,s,p,handlers = None):
 			quant = r
 			p,r = p_spcs(s,p)
 		else:
+			tail_error.append((p,r))
 			p = p1
 		
+		errs = []
+		p1 = p
 		p,r = self.p_bnf_symbol(s,p)
 		if not is_fatal(r):
 			patt = r
 			p,r = p_spcs(s,p)
 		else:
+			errs.append((p,r))
 			p = p1
 			if p<len(s) and s[p]=='(':
 				p+=1
@@ -1161,10 +1414,12 @@ def p_bnf_sequence_(self,s,p,handlers = None):
 					return p,r
 				patt = r
 				if not(p<len(s) and s[p]==')'):
-					return (p,FatalError())
+					return (p,FatalError('ожидалась ")"'))
 				p+=1
 				p,r = p_spcs(s,p)
 			else:
+				errs.append((p,r))
+				tail_error.append((p,FatalError(errs)))
 				p = p1
 				break
 				
@@ -1178,19 +1433,24 @@ def p_bnf_sequence_(self,s,p,handlers = None):
 			quant = r
 			p,r = p_spcs(s,p)
 		else:
+			tail_error.append((p,r))
 			p = p1
 		
 		if quant == None:
 			patts.append(patt)
 		else:
-			patts.append(make_cycle(patt,quant))
+			tmp = make_cycle(patt,quant)
+			if debug:
+				print('  '*depth,p,'make_cycle',tmp)
+			patts.append(tmp)
 			
 	if len(patts)==0:
-		return (start_seq_p,FatalError())
+		return (start_seq_p,FatalError('последовательность не должна быть пустой'))
 	
 	p1 = p
 	p,r = p_seq_handler(s,p)
 	if is_fatal(r):
+		tail_error.append((p,r))
 		p = p1
 	else:
 		if len(handlers)>0:
@@ -1214,9 +1474,10 @@ def make_cycle(pattern,quantifier):
 		def pp_common_opt(s,p):
 			rezs = pattern[1](s,p)
 			if rezs==[]:
-				return [(p,'')]
+				return [(p,[])]
 			else:
-				rezs.append((p,''))
+				rezs = [(p,[r]) for p,r in rezs]
+				rezs.append((p,[]))
 				return rezs
 		pp_cycle = pp_common_opt
 	else:
@@ -1292,8 +1553,8 @@ def make_cycle(pattern,quantifier):
 			if rezs == []: return rezs
 			return apply_seq_handlers(False,handlers,
 									  [(p,{name:r}) for p,r in rezs])
-		return ('obj',pp_name_cat)
-	else: raise BaseException()
+		return ('obj',pp_name)
+	else: raise Exception()
 
 	
 # ---- Перечисления ----
@@ -1306,7 +1567,7 @@ def make_alternatives(seqs,handlers):
 		if seq[0]=='direct': direct_count+=1
 		elif seq[0]=='obj': obj_count+=1
 		elif seq[0]=='string': string_count+=1
-		else: raise BaseException()
+		else: raise Exception()
 	def pp_direct_alt(s,p0):
 		all_rezs = []
 		all_errs = []
@@ -1320,7 +1581,7 @@ def make_alternatives(seqs,handlers):
 				else:
 					all_rezs+=rezs
 		if len(all_rezs)==0:
-			return [(p0,FatalError(all_errs))]
+			return Elist(p0,FatalError(all_errs))
 		else:
 			for handler in handlers:
 				all_rezs = handler(all_rezs)
@@ -1337,7 +1598,7 @@ def make_alternatives(seqs,handlers):
 			else:
 					all_rezs+=rezs
 		if len(all_rezs)==0:
-			return [(p0,FatalError(all_errs))]
+			return Elist(p0,all_errs)
 		else:
 			for handler in handlers:
 				all_rezs = handler(all_rezs)
@@ -1354,10 +1615,11 @@ def make_alternatives(seqs,handlers):
 		return ('obj',pp_direct_alt)
 	elif string_count>0:
 		return ('string',pp_string_alt)
-	else: raise BaseException()
+	else: raise Exception()
 	
 # reg_alternatives ::= reg_sequence (`|` reg_sequence)*  alt_handler?
 @method(Parser)
+@dwr
 def p_reg_alternatives(self,s,p,handlers = None):
 	"""возвращет пару (тип, pp_функция)"""
 	if handlers==None: handlers = []
@@ -1373,7 +1635,8 @@ def p_reg_alternatives(self,s,p,handlers = None):
 		if is_fatal(r):
 			return p,r
 		seqs.append(r)
-
+	tail_error.append((p,FatalError('ожидался символ "|"')))
+	
 	p1 = p
 	p,r = p_alt_handler(s,p)
 	if not is_fatal(r):
@@ -1381,6 +1644,7 @@ def p_reg_alternatives(self,s,p,handlers = None):
 			return (p,FatalError('повторное указывание обработчиков недопускается'))
 		handlers.append(r)
 	else:
+		tail_error.append((p,r))
 		p = p1
 
 	if len(seqs)==1 and len(handlers)==0:
@@ -1389,6 +1653,7 @@ def p_reg_alternatives(self,s,p,handlers = None):
 	
 # bnf_alternatives_ ::= bnf_sequence_ (`|` spcs bnf_sequence_)*  (alt_handler spcs)?
 @method(Parser)
+@dwr
 def p_bnf_alternatives_(self,s,p,handlers = None):
 	"""возвращет пару (тип, pp_функция)"""
 	if handlers==None: handlers = []
@@ -1405,6 +1670,7 @@ def p_bnf_alternatives_(self,s,p,handlers = None):
 		if is_fatal(r):
 			return p,r
 		seqs.append(r)
+	tail_error.append((p,FatalError('ожидался символ "|"')))
 
 	p1 = p
 	p,r = p_alt_handler(s,p)
@@ -1414,6 +1680,7 @@ def p_bnf_alternatives_(self,s,p,handlers = None):
 		handlers.append(r)
 		p,r = p_spcs(s,p)
 	else:
+		tail_error.append((p,r))
 		p = p1
 
 	if len(seqs)==1 and len(handlers)==0:
@@ -1424,118 +1691,149 @@ def p_bnf_alternatives_(self,s,p,handlers = None):
 # === Инициализация ===
 
 def cache_debug(self,name):
-    def decorator(fun):
-        def wrapper(s,p):
-            if not (s is self.cur_s):
-                self.cur_s = s
-                self.cache = {}
-            if name not in self.cache:
-                self.cache[name] = {}
-            cache_name = self.cache[name]
-            if p in cache_name:
-                if self.debug:
-                    print('  '*self.depth,'^',name,p,'from_cache',cache_name[p])
-                if cache_name[p]==None:
-                    print('зацикливание при левой рекурсии:',name,p,file=sys.stderr)
-                    return Elist(p,'зацикливание при левой рекурсии:'+name+str(p))
-                else:
-                    return cache_name[p]
-            else:
-                cache_name[p] = None
-                if self.debug:
-                    print('  '*self.depth,'{',name,p)
-                
-            self.depth+=1
-            try:
-                rezs=fun(s,p)   # <<<<<================== CALL FUN ======================
-            finally:
-                self.depth-=1
-            if self.debug:
-                print('  '*self.depth,'}',name,p,rezs)
-                
-            cache_name[p] = rezs
-                
-            return rezs
-        return wrapper
-    return decorator
+	def decorator(fun):
+		def wrapper(s,p):
+			if not (s is self.cur_s):
+				self.cur_s = s
+				self.cache = {}
+			if name not in self.cache:
+				self.cache[name] = {}
+			cache_name = self.cache[name]
+			if p in cache_name:
+				if self.trace_log:
+					print('  '*self.depth,'^',name,p,'from_cache',repr(cache_name[p]))
+				if cache_name[p]==None:
+					print('зацикливание при левой рекурсии:',name,p,file=sys.stderr)
+					return Elist(p,'зацикливание при левой рекурсии:'+name+str(p))
+				else:
+					return cache_name[p]
+			else:
+				cache_name[p] = None
+				if self.trace_log:
+					print('  '*self.depth,'{',name,p)
+				
+			self.depth+=1
+			try:
+				rezs=fun(s,p)   # <<<<<================== CALL FUN ======================
+			finally:
+				self.depth-=1
+			if self.trace_log:
+				print('  '*self.depth,'}')
+				print('  '*self.depth,' ',name,p,repr(rezs))
+				
+			cache_name[p] = rezs
+				
+			return rezs
+		return wrapper
+	return decorator
+	
+def last_error(l):
+	if len(l)==0: return []
+	lp = max(p for p,e in l)
+	return [(p,e) for p,e in l if p==lp]
 	
 @method(Parser)
 def add_regexp(self,name,patt):
-    cp = re.compile(patt)
-    def pp_regexp(s,p):
-        m = cp.match(s[p:])
-        if m==None:
-            return Elist(p,FatalError('ожидалось рег.выр. '+name))
-        else:
-            return [(p+len(m.group(0)),m.group(0))]
-    self.patterns[name] = cache_debug(self,name)(pp_regexp)
+	cp = re.compile(patt)
+	def pp_regexp(s,p):
+		m = cp.match(s[p:])
+		if m==None:
+			return Elist(p,FatalError('ожидалось рег.выр. '+name))
+		else:
+			return [(p+len(m.group(0)),m.group(0))]
+	self.patterns[name] = cache_debug(self,name)(pp_regexp)
 	
 @method(Parser)
 def add_reg(self,name,patt):
-    p,r = self.p_reg_alternatives(patt,0)
-    if is_fatal(r):
-        raise BaseException(r)
-    tmp = r
-    p,r = p_spcs(patt,p)
-    if p!=len(patt):
-        raise BaseException('разобран не весь паттерн',p)
-    self.patterns[name] = cache_debug(self,name)(tmp[1])
+	global tail_error
+	tail_error = []
+	p,r = self.p_reg_alternatives(patt,0)
+	if is_fatal(r):
+		raise Exception(r)
+	tmp = r
+	p,r = p_spcs(patt,p)
+	if p!=len(patt):
+		raise Exception('разобран не весь паттерн',p,patt[p:min(len(patt),p+20)])
+	self.patterns[name] = cache_debug(self,name)(tmp[1])
 
 @method(Parser)
 def add_bnf(self,name,patt):
-    p,r = self.p_bnf_alternatives_(patt,0)
-    if is_fatal(r):
-        raise BaseException((p,r))
-    tmp = r
-    if p!=len(patt):
-        raise BaseException('разобран не весь паттерн',p)
-    self.patterns[name] = cache_debug(self,name)(tmp[1])
+	global tail_error
+	tail_error = []
+	p=0
+	p,r = p_spcs(patt,p)
+	p,r = self.p_bnf_alternatives_(patt,p)
+	if is_fatal(r):
+		le = last_error(tail_error)
+		if len(le)==0 or le[0][0]<=p:
+			raise Exception((p,r))
+		else: raise Exception(le)
+	tmp = r
+	if p!=len(patt):
+		raise Exception(last_error(tail_error),p,patt[p:min(len(patt),p+20)])
+	self.patterns[name] = cache_debug(self,name)(tmp[1])
 
 @method(Parser)
 def add_reg_seqfun(self,name,patt):
-    def decorator(handler):
-        p,r = self.p_reg_sequence(patt,0,[handler])
-        if is_fatal(r):
-            raise BaseException(r)
-        tmp = r
-        p,r = p_spcs(patt,p)
-        if p!=len(patt):
-            raise BaseException('разобран не весь паттерн',p)
-        self.patterns[name] = cache_debug(self,name)(tmp[1])
+	def decorator(handler):
+		global tail_error
+		tail_error = []
+		p,r = self.p_reg_sequence(patt,0,[handler])
+		if is_fatal(r):
+			raise Exception(r)
+		tmp = r
+		p,r = p_spcs(patt,p)
+		if p!=len(patt):
+			raise Exception('разобран не весь паттерн',p,patt[p:min(len(patt),p+20)])
+		self.patterns[name] = cache_debug(self,name)(tmp[1])
+	return decorator
 
 @method(Parser)
 def add_bnf_seqfun(self,name,patt):
-    def decorator(handler):
-        p,r = self.p_bnf_sequence_(patt,0,[handler])
-        if is_fatal(r):
-            raise BaseException(r)
-        tmp = r
-        p,r = p_spcs(patt,p)
-        if p!=len(patt):
-            raise BaseException('разобран не весь паттерн',p)
-        self.patterns[name] = cache_debug(self,name)(tmp[1])
+	def decorator(handler):
+		global tail_error
+		tail_error = []
+		p=0
+		p,r = p_spcs(patt,p)
+		p,r = self.p_bnf_sequence_(patt,p,[handler])
+		if is_fatal(r):
+			raise Exception(r)
+		tmp = r
+		p,r = p_spcs(patt,p)
+		if p!=len(patt):
+			raise Exception('разобран не весь паттерн',p,patt[p:min(len(patt),p+20)])
+		self.patterns[name] = cache_debug(self,name)(tmp[1])
+	return decorator
 
 @method(Parser)
 def add_reg_altfun(self,name,patt):
-    def decorator(handler):
-        p,r = self.p_reg_alternatives(patt,0,[handler])
-        if is_fatal(r):
-            raise BaseException(r)
-        tmp = r
-        p,r = p_spcs(patt,p)
-        if p!=len(patt):
-            raise BaseException('разобран не весь паттерн',p)
-        self.patterns[name] = cache_debug(self,name)(tmp[1])
+	def decorator(handler):
+		global tail_error
+		tail_error = []
+		p,r = self.p_reg_alternatives(patt,0,[handler])
+		if is_fatal(r):
+			raise Exception(r)
+		tmp = r
+		p,r = p_spcs(patt,p)
+		if p!=len(patt):
+			raise Exception('разобран не весь паттерн',p,patt[p:min(len(patt),p+20)])
+		self.patterns[name] = cache_debug(self,name)(tmp[1])
+	return decorator
 
 @method(Parser)
 def add_bnf_altfun(self,name,patt):
-    def decorator(handler):
-        p,r = self.p_bnf_alternatives_(patt,0,[handler])
-        if is_fatal(r):
-            raise BaseException(r)
-        tmp = r
-        p,r = p_spcs(patt,p)
-        if p!=len(patt):
-            raise BaseException('разобран не весь паттерн',p)
-        self.patterns[name] = cache_debug(self,name)(tmp[1])
+	def decorator(handler):
+		global tail_error
+		tail_error = []
+		p=0
+		p,r = p_spcs(patt,p)
+		p,r = self.p_bnf_alternatives_(patt,p,[handler])
+		if is_fatal(r):
+			raise Exception(r)
+		tmp = r
+		p,r = p_spcs(patt,p)
+		if p!=len(patt):
+			raise Exception('разобран не весь паттерн',p,patt[p:min(len(patt),p+20)])
+		self.patterns[name] = cache_debug(self,name)(tmp[1])
+	return decorator
 
